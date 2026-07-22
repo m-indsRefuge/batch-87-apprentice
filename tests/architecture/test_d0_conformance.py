@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 from types import ModuleType
 
@@ -10,22 +11,22 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VALIDATOR_PATH = REPO_ROOT / "scripts" / "validate_d0_architecture.py"
+PREPARER_PATH = REPO_ROOT / "scripts" / "prepare_d0_closure_sources.py"
 
 
-def load_validator() -> ModuleType:
-    spec = importlib.util.spec_from_file_location(
-        "validate_d0_architecture",
-        VALIDATOR_PATH,
-    )
+def load_module(name: str, path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Unable to load validator: {VALIDATOR_PATH}")
+        raise RuntimeError(f"Unable to load module: {path}")
 
     module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
 
 
-validator = load_validator()
+validator = load_module("validate_d0_architecture", VALIDATOR_PATH)
+preparer = load_module("prepare_d0_closure_sources", PREPARER_PATH)
 
 
 def test_parse_headings_ignores_fenced_content() -> None:
@@ -122,3 +123,81 @@ def test_report_closure_ready_requires_no_errors_or_blockers() -> None:
     report.add("error", "ERROR", "Structural error")
     assert not report.structurally_valid
     assert not report.closure_ready
+
+
+def test_heading_normaliser_repairs_legacy_multiple_h1_layout() -> None:
+    text = """# Title
+
+# 1. Major
+
+## 1.1 Child
+
+# 2. Major
+"""
+
+    result = preparer.normalise_heading_hierarchy(text)
+
+    assert result == """# Title
+
+## 1. Major
+
+### 1.1 Child
+
+## 2. Major
+"""
+
+
+def test_heading_normaliser_repairs_initial_h4_jump() -> None:
+    text = """# Title
+
+#### 1. Purpose
+
+### 2. Principle
+
+#### 2.1 Detail
+"""
+
+    result = preparer.normalise_heading_hierarchy(text)
+
+    assert result == """# Title
+
+### 1. Purpose
+
+## 2. Principle
+
+### 2.1 Detail
+"""
+
+    headings = validator.parse_headings(result)
+    previous_level = 0
+    for _, level, _ in headings:
+        assert level <= previous_level + 1 if previous_level else level == 1
+        previous_level = level
+
+
+def test_insert_before_anchor_is_idempotent() -> None:
+    original = """# Title
+
+## 32. Implementation Boundary
+"""
+    section = """## 31.1. Controlled Governance Resilience Evidence
+
+B87-D0-A4.2
+
+"""
+
+    first = preparer.insert_before_anchor(
+        original,
+        anchor="## 32. Implementation Boundary",
+        section=section,
+        label="A2",
+    )
+    second = preparer.insert_before_anchor(
+        first,
+        anchor="## 32. Implementation Boundary",
+        section=section,
+        label="A2",
+    )
+
+    assert first == second
+    assert first.count("B87-D0-A4.2") == 1
