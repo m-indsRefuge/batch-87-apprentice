@@ -161,7 +161,7 @@ def test_heading_normaliser_repairs_initial_h4_jump() -> None:
 
     assert result == """# Title
 
-### 1. Purpose
+## 1. Purpose
 
 ## 2. Principle
 
