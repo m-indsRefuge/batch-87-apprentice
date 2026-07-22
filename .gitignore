@@ -1,0 +1,138 @@
+﻿# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+.python-version
+
+.venv/
+venv/
+env/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ============================================================
+# Environment and secrets
+# ============================================================
+.env
+.env.*
+!.env.example
+
+*.pem
+*.key
+*.pfx
+*.p12
+secrets/
+credentials/
+
+# ============================================================
+# Local databases and memory stores
+# ============================================================
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+data/db/*
+!data/db/.gitkeep
+
+data/memories/*
+!data/memories/.gitkeep
+
+data/sessions/*
+!data/sessions/.gitkeep
+
+data/evidence/*
+!data/evidence/.gitkeep
+
+# ============================================================
+# Datasets
+# ============================================================
+data/datasets/raw/*
+!data/datasets/raw/.gitkeep
+
+data/datasets/curated/*
+!data/datasets/curated/.gitkeep
+
+data/datasets/evaluation/*
+!data/datasets/evaluation/.gitkeep
+
+# Dataset manifests may be version controlled.
+!data/datasets/manifests/
+
+# ============================================================
+# Training outputs and model artifacts
+# ============================================================
+*.gguf
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+
+training/adapters/*
+!training/adapters/.gitkeep
+
+training/corpora/*
+!training/corpora/.gitkeep
+
+training/runs/*
+!training/runs/.gitkeep
+
+# Reviewed configuration and evaluation definitions may be committed.
+!training/configs/
+!training/evaluations/
+
+# ============================================================
+# Agent development journals
+# ============================================================
+development/journals/*
+!development/journals/README.md
+
+# ============================================================
+# Runtime workspace
+# ============================================================
+workspace/inbox/*
+!workspace/inbox/.gitkeep
+
+workspace/active/*
+!workspace/active/.gitkeep
+
+workspace/outbox/*
+!workspace/outbox/.gitkeep
+
+workspace/scratch/*
+!workspace/scratch/.gitkeep
+
+# ============================================================
+# Generated outputs
+# ============================================================
+artifacts/*
+!artifacts/.gitkeep
+
+logs/*
+!logs/.gitkeep
+
+# ============================================================
+# Notebooks and editors
+# ============================================================
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# ============================================================
+# Operating system
+# ============================================================
+.DS_Store
+Thumbs.db
+Desktop.ini
