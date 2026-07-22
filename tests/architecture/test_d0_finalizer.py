@@ -34,9 +34,9 @@ def write_fixture_repo(root: Path) -> None:
             [
                 "# B87-D0-A4.2 — Controlled Governance Resilience Evidence Isolation",
                 "",
-                finalizer.PENDING_STATUS,
+                finalizer.PENDING_STATUS + "  ",
                 "**Resolves:** D0-ISSUE-001",
-                finalizer.PENDING_EFFECTIVE_CONDITION,
+                finalizer.PENDING_EFFECTIVE_CONDITION + "  ",
                 "",
             ]
         ),
@@ -87,6 +87,25 @@ def test_prepare_change_ratifies_only_closure_metadata(tmp_path: Path) -> None:
     assert finalizer.PENDING_STATUS not in change.after
     assert finalizer.PENDING_EFFECTIVE_CONDITION not in change.after
     assert "**Resolves:** D0-ISSUE-001" in change.after
+
+
+def test_prepare_change_removes_trailing_whitespace_from_changed_lines(
+    tmp_path: Path,
+) -> None:
+    write_fixture_repo(tmp_path)
+
+    change = finalizer.prepare_change(tmp_path)
+    lines = change.after.splitlines()
+
+    status_line = next(line for line in lines if line.startswith("**Status:**"))
+    effective_line = next(
+        line for line in lines if line.startswith("**Effective condition:**")
+    )
+
+    assert status_line == finalizer.APPROVED_STATUS
+    assert effective_line == finalizer.SATISFIED_EFFECTIVE_CONDITION
+    assert not status_line.endswith((" ", "\t"))
+    assert not effective_line.endswith((" ", "\t"))
 
 
 def test_prepare_change_is_idempotent_after_write(tmp_path: Path) -> None:
