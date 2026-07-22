@@ -85,8 +85,7 @@ function Invoke-NativeChecked {
             "Label: $Label"
             "Exit code: $exitCode"
             ""
-            $renderedOutput
-        )
+        ) + $renderedOutput
 
         [System.IO.File]::WriteAllLines(
             $LogPath,
@@ -123,6 +122,7 @@ $bundlePath = Join-Path $runDirectory "B87-D0-Validation-Bundle-$timestamp.zip"
 New-Item -ItemType Directory -Path $logsDirectory -Force | Out-Null
 
 $startedAt = Get-Date
+$finishedAt = $null
 $success = $false
 $failureMessage = $null
 $prepState = "not-run"
@@ -142,25 +142,25 @@ try {
         -Label "READ CURRENT BRANCH" `
         -Command { & git branch --show-current } `
         -LogPath (Join-Path $logsDirectory "01-current-branch.log")
-    $branchName = ($branchResult.Output -join "`n").Trim()
+    $branchName = ($branchResult.Output -join [Environment]::NewLine).Trim()
 
     $commitResult = Invoke-NativeChecked `
         -Label "READ CURRENT COMMIT" `
         -Command { & git rev-parse HEAD } `
         -LogPath (Join-Path $logsDirectory "02-current-commit.log")
-    $commitSha = ($commitResult.Output -join "`n").Trim()
+    $commitSha = ($commitResult.Output -join [Environment]::NewLine).Trim()
 
     $pythonResult = Invoke-NativeChecked `
         -Label "READ PYTHON VERSION" `
         -Command { & $PythonCommand --version } `
         -LogPath (Join-Path $logsDirectory "03-python-version.log")
-    $pythonVersion = ($pythonResult.Output -join "`n").Trim()
+    $pythonVersion = ($pythonResult.Output -join [Environment]::NewLine).Trim()
 
     $pipResult = Invoke-NativeChecked `
         -Label "READ PIP VERSION" `
         -Command { & $PythonCommand -m pip --version } `
         -LogPath (Join-Path $logsDirectory "04-pip-version.log")
-    $pipVersion = ($pipResult.Output -join "`n").Trim()
+    $pipVersion = ($pipResult.Output -join [Environment]::NewLine).Trim()
 
     Write-Host "Branch: $branchName"
     Write-Host "Commit: $commitSha"
@@ -215,8 +215,7 @@ try {
     $null = Invoke-NativeChecked `
         -Label "RUN D0 ARCHITECTURE CONFORMANCE" `
         -Command {
-            & $PythonCommand scripts/validate_d0_architecture.py `
-                --json-output $jsonPath
+            & $PythonCommand scripts/validate_d0_architecture.py --json-output $jsonPath
         } `
         -LogPath (Join-Path $logsDirectory "11-architecture-conformance.log")
 
@@ -261,54 +260,60 @@ $stepLogs = @(
         ForEach-Object { $_.Name }
 )
 
-$summary = @"
-# B87-D0 Validation Run Summary
+if ($stepLogs.Count -gt 0) {
+    $stepLogsMarkdown = ($stepLogs | ForEach-Object { "- $_" }) -join [Environment]::NewLine
+}
+else {
+    $stepLogsMarkdown = "No step logs were produced."
+}
 
-**Status:** $statusText  
-**Started:** $($startedAt.ToString('o'))  
-**Finished:** $($finishedAt.ToString('o'))  
-**Repository:** `$RepoRoot`  
-**Branch:** `$branchName`  
-**Commit:** `$commitSha`  
-**Python:** `$pythonVersion`  
-**pip:** `$pipVersion`  
-**Source preparation:** `$prepState`
+$resultSummary = if ($success) {
+    "The D0 source-preparation, pytest, architecture-conformance, and Git diff checks completed without a command failure. Closure blockers reported by the conformance validator still require Nolan-Byte review and are not converted into approval by this run."
+}
+else {
+    "The run stopped at the first failing command. Failure: $failureMessage"
+}
 
-## Result
+$summaryLines = @(
+    "# B87-D0 Validation Run Summary"
+    ""
+    "**Status:** $statusText  "
+    "**Started:** $($startedAt.ToString('o'))  "
+    "**Finished:** $($finishedAt.ToString('o'))  "
+    "**Repository:** $RepoRoot  "
+    "**Branch:** $branchName  "
+    "**Commit:** $commitSha  "
+    "**Python:** $pythonVersion  "
+    "**pip:** $pipVersion  "
+    "**Source preparation:** $prepState"
+    ""
+    "## Result"
+    ""
+    $resultSummary
+    ""
+    "## Shareable artefacts"
+    ""
+    "- Full transcript: $(Split-Path -Leaf $transcriptPath)"
+    "- Summary: $(Split-Path -Leaf $summaryPath)"
+    "- Conformance JSON: $jsonRelative"
+    "- Step logs directory: logs"
+    "- Bundle: $(Split-Path -Leaf $bundlePath)"
+    ""
+    "## Captured step logs"
+    ""
+    $stepLogsMarkdown
+    ""
+    "## Interpretation boundary"
+    ""
+    "This run validates machine-testable document structure, declared invariants,"
+    "traceability, tests, and repository diff integrity. It does not replace the"
+    "Nolan-Byte semantic architecture review and does not validate future model"
+    "behaviour."
+)
 
-$(if ($success) {
-    "The D0 source-preparation, pytest, architecture-conformance, and Git diff checks completed without a command failure. Closure blockers reported by the conformance validator still require Nolan–Byte review and are not converted into approval by this run."
-} else {
-    "The run stopped at the first failing command. Failure: **$failureMessage**"
-})
-
-## Shareable artefacts
-
-- Full transcript: `$(Split-Path -Leaf $transcriptPath)`
-- Summary: `$(Split-Path -Leaf $summaryPath)`
-- Conformance JSON: `$jsonRelative`
-- Step logs: `logs\`
-- Bundle: `$(Split-Path -Leaf $bundlePath)`
-
-## Captured step logs
-
-$(if ($stepLogs.Count -gt 0) {
-    ($stepLogs | ForEach-Object { "- `$_`" }) -join "`n"
-} else {
-    "No step logs were produced."
-})
-
-## Interpretation boundary
-
-This run validates machine-testable document structure, declared invariants,
-traceability, tests, and repository diff integrity. It does not replace the
-Nolan–Byte semantic architecture review and does not validate future model
-behaviour.
-"@
-
-[System.IO.File]::WriteAllText(
+[System.IO.File]::WriteAllLines(
     $summaryPath,
-    $summary,
+    $summaryLines,
     [System.Text.UTF8Encoding]::new($false)
 )
 
