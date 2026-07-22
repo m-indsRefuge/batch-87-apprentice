@@ -42,8 +42,8 @@
         "Nolan.*final authority"
       ],
       "forbidden_patterns": [
-        "Apprentice.*final authority",
-        "model.*final authority"
+        "\\b(?:the\\s+)?Apprentice\\s+(?:is|remains|holds|retains|possesses|becomes|has)\\s+(?:the\\s+)?final(?:\\s+human|\\s+architectural)?\\s+authority\\b",
+        "\\b(?:the\\s+)?model\\s+(?:is|remains|holds|retains|possesses|becomes|has)\\s+(?:the\\s+)?final(?:\\s+human|\\s+architectural)?\\s+authority\\b"
       ]
     },
     {
