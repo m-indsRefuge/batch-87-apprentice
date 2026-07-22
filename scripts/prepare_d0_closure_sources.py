@@ -28,7 +28,6 @@ A3_PATH = Path("docs/architecture/B87-D0-A3-PERSISTENCE-AND-PROTOCOL-ARCHITECTUR
 A31_PATH = Path("docs/architecture/B87-D0-A3.1-BYTE-PERSPECTIVE-HOW-WORK-GETS-DONE.md")
 A41_PATH = Path("docs/architecture/B87-D0-A4.1-CONTROLLED-GOVERNANCE-RESILIENCE-TESTING.md")
 
-A2_ANCHOR = "# 32. Implementation Boundary"
 A3_ANCHOR = "## 34. Acceptance Criteria"
 A42_REFERENCE = "B87-D0-A4.2"
 
@@ -106,13 +105,7 @@ def normalise_newlines(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def normalise_heading_hierarchy(text: str) -> str:
-    """Ensure one H1 while preserving relative hierarchy outside code fences."""
-
-    lines = normalise_newlines(text).splitlines()
-    if not lines or not lines[0].startswith("# "):
-        raise RuntimeError("The first line must be the approved H1 title.")
-
+def _collect_headings(lines: list[str]) -> list[tuple[int, int]]:
     inside_fence = False
     fence_marker: str | None = None
     headings: list[tuple[int, int]] = []
@@ -136,24 +129,82 @@ def normalise_heading_hierarchy(text: str) -> str:
         if 1 <= len(prefix) <= 6 and set(prefix) == {"#"}:
             headings.append((index, len(prefix)))
 
-    h1_count = sum(1 for _, level in headings if level == 1)
-    if h1_count == 1:
-        return normalise_newlines(text).rstrip("\n") + "\n"
+    return headings
 
-    if h1_count < 1:
-        raise RuntimeError("Document contains no H1 title.")
+
+def _set_heading_level(line: str, level: int) -> str:
+    if not 1 <= level <= 6:
+        raise RuntimeError(f"Invalid target heading level: H{level}")
+    _, separator, title = line.partition(" ")
+    if not separator:
+        raise RuntimeError(f"Malformed heading: {line!r}")
+    return f"{'#' * level} {title}"
+
+
+def normalise_heading_hierarchy(text: str) -> str:
+    """Ensure one H1 and remove heading jumps outside fenced code blocks.
+
+    The function supports the two legacy layouts in the D0 corpus:
+
+    - documents whose major sections were additional H1 headings;
+    - documents whose major sections begin at H3/H4 beneath one H1 title.
+    """
+
+    lines = normalise_newlines(text).splitlines()
+    if not lines or not lines[0].startswith("# "):
+        raise RuntimeError("The first line must be the approved H1 title.")
+
+    headings = _collect_headings(lines)
+    if not headings or headings[0] != (0, 1):
+        raise RuntimeError("The approved H1 title must be the first heading.")
 
     output = list(lines)
-    for index, level in headings:
-        if index == 0:
-            continue
-        if level >= 6:
-            raise RuntimeError(
-                f"Cannot safely shift H6 heading at line {index + 1}; manual review required."
-            )
-        output[index] = "#" + output[index]
+    following = headings[1:]
+    if not following:
+        return "\n".join(output).rstrip("\n") + "\n"
 
-    return "\n".join(output).rstrip("\n") + "\n"
+    if any(level == 1 for _, level in following):
+        shift = 1
+    else:
+        minimum_level = min(level for _, level in following)
+        shift = -(minimum_level - 2) if minimum_level > 2 else 0
+
+    shifted: list[tuple[int, int]] = [(0, 1)]
+    for index, level in following:
+        target = level + shift
+        if not 2 <= target <= 6:
+            raise RuntimeError(
+                f"Cannot safely normalise heading at line {index + 1}: H{level} -> H{target}."
+            )
+        shifted.append((index, target))
+
+    previous_level = 1
+    repaired: list[tuple[int, int]] = [(0, 1)]
+    for index, level in shifted[1:]:
+        target = min(level, previous_level + 1)
+        if target < 2:
+            target = 2
+        repaired.append((index, target))
+        previous_level = target
+
+    for index, level in repaired[1:]:
+        output[index] = _set_heading_level(output[index], level)
+
+    result = "\n".join(output).rstrip("\n") + "\n"
+    final_headings = _collect_headings(result.splitlines())
+    h1_count = sum(1 for _, level in final_headings if level == 1)
+    if h1_count != 1:
+        raise RuntimeError(f"Heading normalisation produced {h1_count} H1 headings.")
+
+    previous_level = 0
+    for index, level in final_headings:
+        if previous_level and level > previous_level + 1:
+            raise RuntimeError(
+                f"Heading jump remains at line {index + 1}: H{previous_level} -> H{level}."
+            )
+        previous_level = level
+
+    return result
 
 
 def insert_before_anchor(text: str, *, anchor: str, section: str, label: str) -> str:
