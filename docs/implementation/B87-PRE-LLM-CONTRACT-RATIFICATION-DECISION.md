@@ -1,51 +1,61 @@
 # B87 Pre-LLM Contract Ratification Decision
 
-**Project:** Batch-87 Apprentice  
-**Decision class:** Implementation-contract ratification  
-**Status:** Pending Nolan ratification  
-**Prepared:** 2026-07-22  
-**Architecture reviewer:** Byte  
-**Final human authority:** Nolan  
+**Project:** Batch-87 Apprentice
+**Decision class:** Implementation-contract ratification
+**Status:** Ratified and accepted
+**Prepared:** 2026-07-22
+**Ratified:** 2026-07-22
+**Ratification statement:** `RATIFY B87 PRE-LLM CONTRACT PACK`
+**Architecture reviewer:** Byte
+**Final human authority:** Nolan
 **Runtime implementation in this decision:** None
+**Active implementation release:** None
 
 ---
 
-## 1. Decision Under Review
+## 1. Decision
 
-This decision concerns acceptance of:
+Nolan has explicitly ratified the Batch-87 pre-LLM contract pack.
+
+The following are accepted as the governing implementation programme for the
+pre-LLM foundation:
 
 1. `B87-PRE-LLM-IMPLEMENTATION-PROGRAMME-CONTRACT.md`;
 2. `B87-E0-E2-EXPERIMENTAL-LABORATORIES-CONTRACT.md`;
 3. `B87-CODEX-MAX-PRE-LLM-FOUNDATION-BUILD-PROMPT.md`;
 4. the post-D0 corrections to `AGENTS.md`.
 
-The decision does not itself implement runtime code.
+This decision ratifies contracts and orchestration rules only. It does not
+implement runtime code, modify migrations, connect a model, or begin a Codex
+implementation phase.
 
 ---
 
-## 2. Proposed Ratification
+## 2. Ratification Effects
 
-Upon Nolan’s explicit approval, the contract package will become the governing
-implementation programme for the Batch-87 pre-LLM foundation.
+Ratification:
 
-Ratification will:
-
-- accept the detailed contracts for I1 through I4;
-- accept the deterministic Pre-I5 infrastructure contract;
-- accept E0 through E2 as external experimental laboratory contracts;
-- accept the master Codex_Max prompt as the operator-controlled orchestration
+- accepts the detailed contracts for B87-I1 through B87-I4;
+- accepts the deterministic B87-PRE-I5 infrastructure contract;
+- accepts B87-E0 through B87-E2 as external experimental laboratory contracts;
+- accepts the Codex_Max prompt as the operator-controlled orchestration
   contract;
-- preserve exact phase-release requirements;
-- preserve the 60% hard Codex usage ceiling;
-- preserve the prohibition on model integration during the programme.
+- preserves exact phase-release requirements;
+- preserves the 60% hard Codex usage ceiling;
+- preserves the prohibition on model integration during the programme;
+- preserves separate commits, evidence packets, stop gates, and Nolan-issued
+  releases for every phase.
 
-Ratification will not automatically release every phase.
+Ratification does not release all phases and does not authorise Codex to infer
+that implementation should begin.
 
-The first active implementation authority remains:
+The first eligible implementation release is:
 
 ```text
 AUTHORIZE B87-I1
 ```
+
+That release has not been issued by this decision.
 
 Later phases require their own direct Nolan-issued release instructions.
 
@@ -53,7 +63,8 @@ Later phases require their own direct Nolan-issued release instructions.
 
 ## 3. Byte Semantic Review
 
-Byte has reviewed the proposed package against the accepted D0 architecture.
+Byte reviewed the complete contract pack against the accepted D0 architecture
+and records the following accepted findings.
 
 ### 3.1 Authority
 
@@ -80,20 +91,17 @@ Observe
 Analyse
 ```
 
-It distinguishes Apprentice authority from operator-authorised development and
-experimental command execution.
+Codex development commands are attributed to `codex_development_harness`.
 
-Codex command execution is attributed to `codex_development_harness`.
+Laboratory commands are attributed to `experimental_harness`.
 
-Laboratory command execution is attributed to `experimental_harness`.
-
-Neither grants Apprentice Execute permission.
+Neither principal grants or demonstrates Apprentice Execute permission.
 
 ### 3.3 Memory and evidence
 
 The package preserves exactly three primary memory systems.
 
-It keeps:
+The following remain outside ordinary memory by default:
 
 - source evidence;
 - Controlled Governance Resilience evidence;
@@ -101,40 +109,38 @@ It keeps:
 - failed candidate paths;
 - synthetic scenarios;
 - benchmark evidence;
-- replay evidence
-
-outside ordinary memory by default.
+- replay evidence.
 
 Only separately derived, reviewed, and approved narrow lessons may enter the
 existing memory-candidate lifecycle.
 
 ### 3.4 Production and experimental separation
 
-The package defines a one-way dependency rule:
+The accepted dependency rule is:
 
 ```text
 experimental laboratory -> approved public core contracts
 production core -X-> experimental laboratory implementations
 ```
 
-It requires the production core to operate when the experimental packages are
-absent.
+The production core must operate when experimental packages are absent.
 
 Experimental systems cannot access production memory, credentials, accounts,
-live authority state, production branches, or unrestricted network services.
+live authority state, production branches, private evidence, or unrestricted
+network services.
 
 ### 3.5 Computational integrity
 
 The AlphaCode- and AlphaTensor-inspired capabilities are computationally native.
 
-E1 implements deterministic patch admission, isolated execution, trusted-test
+B87-E1 defines deterministic patch admission, isolated execution, trusted-test
 preservation, behaviour signatures, grouping, and evidence-based ranking.
 
-E2 implements formal state/action search, deterministic transitions, invariant
+B87-E2 defines formal state/action search, deterministic transitions, invariant
 checking, shortest-failure-sequence discovery, replay, and bounded classical
 search.
 
-No biological ontology is introduced.
+No biological or anthropomorphic ontology is introduced.
 
 ### 3.6 Learned capability deferral
 
@@ -149,18 +155,18 @@ The package does not authorise:
 - model serving;
 - training or fine-tuning.
 
-Those capabilities require future evidence and accepted contracts.
+Those capabilities require future evidence and separately accepted contracts.
 
 ### 3.7 Scope and build practicality
 
-The programme is ambitious but bounded through:
+The programme is bounded through:
 
 - separate phase releases;
-- separate commits;
+- separate reviewable commits;
 - complete tests after every phase;
 - evidence bundles;
-- stop conditions;
-- usage reserve;
+- explicit stop conditions;
+- a protected usage reserve;
 - no speculative later-phase implementation;
 - a required production integration gate before laboratory work.
 
@@ -169,11 +175,11 @@ continuous mutation.
 
 ---
 
-## 4. Refinements Incorporated From Discovery
+## 4. Discovery Refinements Accepted
 
-The contract package incorporates the following refinements:
+The contract pack incorporates and ratifies these refinements:
 
-1. candidate origin is separate from lifecycle;
+1. candidate origin is separate from candidate lifecycle;
 2. `ROBUSTNESS_TESTED` replaces broad adversarial lifecycle wording;
 3. Byte review and Nolan authorisation are separate fields;
 4. laboratory command execution uses a separate principal;
@@ -183,33 +189,36 @@ The contract package incorporates the following refinements:
    reward values;
 8. raw experimental evidence is excluded from memory, identity, and training;
 9. learned search is deferred until classical baselines and deterministic
-   verification prove need;
-10. the Codex build implements real deterministic V0 capability rather than
-    unused placeholders.
+   verification establish need;
+10. the Codex build targets real deterministic V0 capability rather than unused
+    placeholders.
 
 ---
 
-## 5. Ratification Effects by Phase
+## 5. Accepted Phase State
 
 ### B87-I1
 
-Contract accepted and eligible for immediate operator release after branch and
-baseline checks.
+The contract is accepted and eligible for a separate operator release after
+branch and baseline checks.
 
 ### B87-I2 through B87-I4
 
-Contracts accepted conditionally. Implementation remains prohibited until the
-preceding phase is reviewed and Nolan issues the exact current-phase release.
+The contracts are accepted conditionally. Implementation remains prohibited
+until the preceding phase is reviewed and Nolan issues the exact current-phase
+release.
 
 ### B87-PRE-I5
 
-Contract accepted conditionally. It may implement deterministic non-model
-evaluation infrastructure only.
+The contract is accepted conditionally. It may implement deterministic
+non-model evaluation infrastructure only after I1 through I4 pass their gates.
 
 ### B87-E0 through B87-E2
 
-Contracts accepted conditionally as external laboratories. E0 cannot begin
-until the complete I1–I4 production integration gate is accepted.
+The contracts are accepted conditionally as external laboratories. B87-E0
+cannot begin until the complete I1-I4 production integration gate is accepted.
+B87-E1 requires accepted E0, and B87-E2 requires accepted E0 plus its own
+release.
 
 No phase release is inferred from this decision.
 
@@ -223,63 +232,66 @@ The hard maximum remains:
 60% of the available Codex usage cycle
 ```
 
-The planned implementation target is no more than 50%, preserving at least 10%
-for Byte–Nolan review-directed repairs.
+The planned implementation target remains no more than 50%, preserving at
+least 10% for Byte-Nolan review-directed repairs.
 
-Codex must stop rather than consume the reserve without a reviewable phase
-result.
-
----
-
-## 7. Required Ratification Evidence
-
-Before this decision is changed to accepted:
-
-- all four proposed files must be present on one documentation-only branch;
-- `AGENTS.md` must state that D0 is closed;
-- no runtime source or migration file may be changed;
-- the master prompt must default to `ACTIVE_OPERATOR_RELEASE: NONE`;
-- the prompt must require exact Nolan-issued release instructions;
-- the prompt must prohibit model integration;
-- I1 must remain the first executable phase;
-- production and experimental dependency direction must be explicit;
-- the branch diff must contain documentation only;
-- Nolan must explicitly ratify the package.
+Codex must stop rather than consume the protected reserve without a reviewable
+phase result.
 
 ---
 
-## 8. Exact Ratification Statement
+## 7. Ratification Evidence
 
-Nolan may ratify the package with the following decision:
+The following evidence was satisfied before acceptance:
+
+- all four proposed artefacts were present on one documentation-only branch;
+- `AGENTS.md` stated that D0 was closed and merged;
+- no runtime source or migration file was changed;
+- the master prompt defaulted to `ACTIVE_OPERATOR_RELEASE: NONE`;
+- exact Nolan-issued phase releases were required;
+- model integration was prohibited;
+- I1 remained the first executable phase;
+- production and experimental dependency direction was explicit;
+- the branch diff contained documentation only;
+- PR #2 was open and mergeable;
+- Nolan issued the exact ratification statement.
+
+---
+
+## 8. Recorded Ratification Statement
+
+Nolan issued:
 
 ```text
 RATIFY B87 PRE-LLM CONTRACT PACK
 ```
 
-This statement accepts the contracts and prompt. It does not itself begin a
-Codex implementation run.
+This statement accepts the contracts and prompt. It does not begin a Codex
+implementation run.
 
-The first Codex implementation run requires the separate release:
+The first implementation run still requires:
 
 ```text
 AUTHORIZE B87-I1
 ```
 
-The two statements may be issued together only when Nolan intends to ratify the
-contracts and immediately begin I1 preparation.
-
 ---
 
-## 9. Current Decision
-
-Byte’s semantic review result is:
+## 9. Final Decision
 
 ```text
-READY FOR NOLAN RATIFICATION
+RATIFIED AND ACCEPTED
 ```
 
-The package is coherent with D0, computationally native, authority-bounded,
-phase-gated, and suitable for the intended pre-LLM Codex_Max programme.
+The pre-LLM contract pack is coherent with D0, computationally native,
+authority-bounded, phase-gated, and accepted as the governing Codex_Max
+implementation programme.
 
-Until Nolan issues the exact ratification statement, the package remains a
-review-ready proposal and creates no new implementation authority.
+Current execution state:
+
+```text
+ACTIVE_OPERATOR_RELEASE: NONE
+```
+
+No runtime implementation authority beyond the already eligible B87-I1
+contract is activated until Nolan separately issues `AUTHORIZE B87-I1`.
