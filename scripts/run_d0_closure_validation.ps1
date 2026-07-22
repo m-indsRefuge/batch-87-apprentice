@@ -6,6 +6,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
 function Resolve-RepositoryRoot {
     param([string] $RequestedRoot)
 
@@ -41,16 +45,54 @@ function Invoke-NativeChecked {
         [Parameter(Mandatory)]
         [scriptblock] $Command,
 
-        [int[]] $AllowedExitCodes = @(0)
+        [int[]] $AllowedExitCodes = @(0),
+
+        [string] $LogPath = ""
     )
 
     Write-Host ""
     Write-Host "=== $Label ==="
-    & $Command
+
+    $output = @(& $Command 2>&1)
     $exitCode = $LASTEXITCODE
 
     if ($null -eq $exitCode) {
         $exitCode = 0
+    }
+
+    $renderedOutput = @(
+        $output | ForEach-Object {
+            if ($null -eq $_) {
+                ""
+            }
+            else {
+                $_.ToString()
+            }
+        }
+    )
+
+    foreach ($line in $renderedOutput) {
+        Write-Host $line
+    }
+
+    if ($LogPath) {
+        $logDirectory = Split-Path -Parent $LogPath
+        if ($logDirectory) {
+            New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+        }
+
+        $logContent = @(
+            "Label: $Label"
+            "Exit code: $exitCode"
+            ""
+            $renderedOutput
+        )
+
+        [System.IO.File]::WriteAllLines(
+            $LogPath,
+            $logContent,
+            [System.Text.UTF8Encoding]::new($false)
+        )
     }
 
     if ($AllowedExitCodes -notcontains $exitCode) {
@@ -58,7 +100,13 @@ function Invoke-NativeChecked {
     }
 
     Write-Host "PASS: $Label (exit code $exitCode)"
-    return $exitCode
+
+    return [pscustomobject]@{
+        Label = $Label
+        ExitCode = $exitCode
+        Output = $renderedOutput
+        LogPath = $LogPath
+    }
 }
 
 $RepoRoot = Resolve-RepositoryRoot -RequestedRoot $RepoRoot
@@ -66,12 +114,13 @@ Set-Location -LiteralPath $RepoRoot
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $runDirectory = Join-Path $RepoRoot "artifacts\validation-runs\d0-$timestamp"
+$logsDirectory = Join-Path $runDirectory "logs"
 $transcriptPath = Join-Path $runDirectory "B87-D0-Validation-Transcript-$timestamp.txt"
 $summaryPath = Join-Path $runDirectory "B87-D0-Validation-Summary-$timestamp.md"
 $jsonPath = Join-Path $runDirectory "B87-D0-Conformance-$timestamp.json"
 $bundlePath = Join-Path $runDirectory "B87-D0-Validation-Bundle-$timestamp.zip"
 
-New-Item -ItemType Directory -Path $runDirectory -Force | Out-Null
+New-Item -ItemType Directory -Path $logsDirectory -Force | Out-Null
 
 $startedAt = Get-Date
 $success = $false
@@ -89,91 +138,102 @@ try {
     Write-Host "Repository: $RepoRoot"
     Write-Host "Started: $($startedAt.ToString('o'))"
 
-    $branchName = (& git branch --show-current).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to determine the current Git branch."
-    }
+    $branchResult = Invoke-NativeChecked `
+        -Label "READ CURRENT BRANCH" `
+        -Command { & git branch --show-current } `
+        -LogPath (Join-Path $logsDirectory "01-current-branch.log")
+    $branchName = ($branchResult.Output -join "`n").Trim()
 
-    $commitSha = (& git rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to determine the current Git commit."
-    }
+    $commitResult = Invoke-NativeChecked `
+        -Label "READ CURRENT COMMIT" `
+        -Command { & git rev-parse HEAD } `
+        -LogPath (Join-Path $logsDirectory "02-current-commit.log")
+    $commitSha = ($commitResult.Output -join "`n").Trim()
 
-    $pythonVersion = (& $PythonCommand --version 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to run Python using command '$PythonCommand'."
-    }
+    $pythonResult = Invoke-NativeChecked `
+        -Label "READ PYTHON VERSION" `
+        -Command { & $PythonCommand --version } `
+        -LogPath (Join-Path $logsDirectory "03-python-version.log")
+    $pythonVersion = ($pythonResult.Output -join "`n").Trim()
 
-    $pipVersion = (& $PythonCommand -m pip --version 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw "pip is unavailable for '$PythonCommand'."
-    }
+    $pipResult = Invoke-NativeChecked `
+        -Label "READ PIP VERSION" `
+        -Command { & $PythonCommand -m pip --version } `
+        -LogPath (Join-Path $logsDirectory "04-pip-version.log")
+    $pipVersion = ($pipResult.Output -join "`n").Trim()
 
     Write-Host "Branch: $branchName"
     Write-Host "Commit: $commitSha"
     Write-Host "Python: $pythonVersion"
     Write-Host "pip: $pipVersion"
 
-    Invoke-NativeChecked `
-        -Label "INSTALL DEVELOPMENT DEPENDENCIES" `
-        -Command { & $PythonCommand -m pip install -e ".[dev]" } | Out-Null
+    $null = Invoke-NativeChecked `
+        -Label "INSTALL D0 VALIDATION DEPENDENCIES" `
+        -Command { & $PythonCommand -m pip install "pytest>=8" } `
+        -LogPath (Join-Path $logsDirectory "05-install-validation-dependencies.log")
 
-    Invoke-NativeChecked `
+    $null = Invoke-NativeChecked `
         -Label "VERIFY PYTEST INSTALLATION" `
-        -Command { & $PythonCommand -m pytest --version } | Out-Null
+        -Command { & $PythonCommand -m pytest --version } `
+        -LogPath (Join-Path $logsDirectory "06-pytest-version.log")
 
-    Write-Host ""
-    Write-Host "=== PREVIEW SOURCE PREPARATION ==="
-    & $PythonCommand scripts/prepare_d0_closure_sources.py --check --show-diff
-    $prepExitCode = $LASTEXITCODE
+    $prepResult = Invoke-NativeChecked `
+        -Label "PREVIEW SOURCE PREPARATION" `
+        -Command {
+            & $PythonCommand scripts/prepare_d0_closure_sources.py --check --show-diff
+        } `
+        -AllowedExitCodes @(0, 1) `
+        -LogPath (Join-Path $logsDirectory "07-source-preparation-preview.log")
 
-    if ($prepExitCode -eq 0) {
+    if ($prepResult.ExitCode -eq 0) {
         $prepState = "already-prepared"
         Write-Host "PASS: D0 source documents were already prepared."
     }
-    elseif ($prepExitCode -eq 1) {
+    elseif ($prepResult.ExitCode -eq 1) {
         $prepState = "required-and-applied"
         Write-Host "Source preparation is required; applying the idempotent amendment."
-        Invoke-NativeChecked `
+
+        $null = Invoke-NativeChecked `
             -Label "APPLY SOURCE PREPARATION" `
-            -Command { & $PythonCommand scripts/prepare_d0_closure_sources.py } | Out-Null
+            -Command { & $PythonCommand scripts/prepare_d0_closure_sources.py } `
+            -LogPath (Join-Path $logsDirectory "08-source-preparation-apply.log")
     }
     else {
-        throw "Source-preparation preview failed with unexpected exit code $prepExitCode."
+        throw "Source-preparation preview failed with unexpected exit code $($prepResult.ExitCode)."
     }
 
-    Invoke-NativeChecked `
+    $null = Invoke-NativeChecked `
         -Label "VERIFY SOURCE PREPARATION IDEMPOTENCE" `
-        -Command { & $PythonCommand scripts/prepare_d0_closure_sources.py --check } | Out-Null
+        -Command { & $PythonCommand scripts/prepare_d0_closure_sources.py --check } `
+        -LogPath (Join-Path $logsDirectory "09-source-preparation-idempotence.log")
 
-    Invoke-NativeChecked `
+    $null = Invoke-NativeChecked `
         -Label "RUN PYTEST" `
-        -Command { & $PythonCommand -m pytest } | Out-Null
+        -Command { & $PythonCommand -m pytest } `
+        -LogPath (Join-Path $logsDirectory "10-pytest.log")
 
-    Invoke-NativeChecked `
+    $null = Invoke-NativeChecked `
         -Label "RUN D0 ARCHITECTURE CONFORMANCE" `
         -Command {
             & $PythonCommand scripts/validate_d0_architecture.py `
                 --json-output $jsonPath
-        } | Out-Null
+        } `
+        -LogPath (Join-Path $logsDirectory "11-architecture-conformance.log")
 
-    Invoke-NativeChecked `
+    $null = Invoke-NativeChecked `
         -Label "RUN GIT DIFF CHECK" `
-        -Command { & git diff --check } | Out-Null
+        -Command { & git diff --check } `
+        -LogPath (Join-Path $logsDirectory "12-git-diff-check.log")
 
-    Write-Host ""
-    Write-Host "=== GIT DIFF STAT ==="
-    & git diff --stat
-    if ($LASTEXITCODE -ne 0) {
-        throw "git diff --stat failed."
-    }
+    $null = Invoke-NativeChecked `
+        -Label "READ GIT DIFF STAT" `
+        -Command { & git diff --stat } `
+        -LogPath (Join-Path $logsDirectory "13-git-diff-stat.log")
 
-    Write-Host ""
-    Write-Host "=== GIT STATUS ==="
-    & git status --short
-    if ($LASTEXITCODE -ne 0) {
-        throw "git status --short failed."
-    }
+    $null = Invoke-NativeChecked `
+        -Label "READ GIT STATUS" `
+        -Command { & git status --short } `
+        -LogPath (Join-Path $logsDirectory "14-git-status.log")
 
     $success = $true
 }
@@ -194,6 +254,12 @@ $jsonRelative = if (Test-Path -LiteralPath $jsonPath) {
 else {
     "Not produced"
 }
+
+$stepLogs = @(
+    Get-ChildItem -LiteralPath $logsDirectory -File -ErrorAction SilentlyContinue |
+        Sort-Object Name |
+        ForEach-Object { $_.Name }
+)
 
 $summary = @"
 # B87-D0 Validation Run Summary
@@ -221,7 +287,16 @@ $(if ($success) {
 - Full transcript: `$(Split-Path -Leaf $transcriptPath)`
 - Summary: `$(Split-Path -Leaf $summaryPath)`
 - Conformance JSON: `$jsonRelative`
+- Step logs: `logs\`
 - Bundle: `$(Split-Path -Leaf $bundlePath)`
+
+## Captured step logs
+
+$(if ($stepLogs.Count -gt 0) {
+    ($stepLogs | ForEach-Object { "- `$_`" }) -join "`n"
+} else {
+    "No step logs were produced."
+})
 
 ## Interpretation boundary
 
@@ -237,7 +312,7 @@ behaviour.
     [System.Text.UTF8Encoding]::new($false)
 )
 
-$bundleItems = @($transcriptPath, $summaryPath)
+$bundleItems = @($transcriptPath, $summaryPath, $logsDirectory)
 if (Test-Path -LiteralPath $jsonPath) {
     $bundleItems += $jsonPath
 }
@@ -251,6 +326,7 @@ Write-Host "============================================================"
 Write-Host "Summary:    $summaryPath"
 Write-Host "Transcript: $transcriptPath"
 Write-Host "JSON:       $jsonPath"
+Write-Host "Step logs:  $logsDirectory"
 Write-Host "Bundle:     $bundlePath"
 
 if (-not $success) {
