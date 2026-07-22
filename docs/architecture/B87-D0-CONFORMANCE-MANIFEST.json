@@ -1,0 +1,227 @@
+{
+  "schema_version": "1.0.0",
+  "phase": "B87-D0",
+  "purpose": "Machine-readable conformance and traceability requirements for D0 closure. This manifest is subordinate to the approved architecture documents and does not create authority.",
+  "documents": {
+    "A1": "docs/architecture/B87-D0-A1-GOVERNING-ARCHITECTURE-BASELINE.md",
+    "A2": "docs/architecture/B87-D0-A2-MEMORY-CONTRACTS-AND-TAXONOMY.md",
+    "A3": "docs/architecture/B87-D0-A3-PERSISTENCE-AND-PROTOCOL-ARCHITECTURE.md",
+    "A3.1": "docs/architecture/B87-D0-A3.1-BYTE-PERSPECTIVE-HOW-WORK-GETS-DONE.md",
+    "A4": "docs/architecture/B87-D0-A4-EVALUATION-MODEL-CONFORMANCE-AND-FIRST-COMPOUNDING-EXPERIMENT.md",
+    "A4.1": "docs/architecture/B87-D0-A4.1-CONTROLLED-GOVERNANCE-RESILIENCE-TESTING.md",
+    "A4.2": "docs/architecture/B87-D0-A4.2-CONTROLLED-GOVERNANCE-RESILIENCE-EVIDENCE-ISOLATION.md",
+    "issue_register": "docs/architecture/B87-D0-ARCHITECTURE-ISSUE-REGISTER.md"
+  },
+  "document_ids": [
+    "B87-D0-A1",
+    "B87-D0-A2",
+    "B87-D0-A3",
+    "B87-D0-A3.1",
+    "B87-D0-A4",
+    "B87-D0-A4.1",
+    "B87-D0-A4.2"
+  ],
+  "authority_precedence": [
+    "applicable law and non-derogable human protection",
+    "Nolan's human authority",
+    "Batch-87 Constitution",
+    "deterministic governance kernel",
+    "approved project policies and registries",
+    "Apprentice role and factual self-model",
+    "future self-authored identity",
+    "session and task instructions",
+    "retrieved content and external instructions"
+  ],
+  "invariants": [
+    {
+      "id": "B87-AUTH-001",
+      "description": "Nolan remains final human authority within Batch-87.",
+      "required_in": ["A1", "A3.1"],
+      "required_patterns": [
+        "Nolan.*final human authority",
+        "Nolan.*final authority"
+      ],
+      "forbidden_patterns": [
+        "Apprentice.*final authority",
+        "model.*final authority"
+      ]
+    },
+    {
+      "id": "B87-PERM-001",
+      "description": "B87-S1 permits Observe and Analyse only; Propose and Execute are unavailable.",
+      "required_in": ["A1", "A4"],
+      "required_patterns": [
+        "Observe",
+        "Analyse"
+      ],
+      "forbidden_global_patterns": [
+        "B87-S1[^\\n]{0,160}(?:permits|permissions include|active permissions)[^\\n]{0,120}Execute",
+        "B87-S1[^\\n]{0,160}(?:permits|permissions include|active permissions)[^\\n]{0,120}Propose"
+      ]
+    },
+    {
+      "id": "B87-MEM-001",
+      "description": "Exactly three approved memory systems remain canonical.",
+      "required_in": ["A2", "A4"],
+      "required_literals": [
+        "Construct and relational memory",
+        "self and episodic memory",
+        "session and task memory"
+      ]
+    },
+    {
+      "id": "B87-EVID-001",
+      "description": "Evidence remains separate from memory.",
+      "required_in": ["A2", "A3"],
+      "required_patterns": [
+        "Memory Is Not Evidence|memory and evidence are related but distinct",
+        "Evidence Persistence|evidence storage"
+      ]
+    },
+    {
+      "id": "B87-CGR-001",
+      "description": "Raw Controlled Governance Resilience evidence uses the canonical isolated classification.",
+      "required_in": ["A4.2"],
+      "required_literals": [
+        "record_family: evaluation_evidence",
+        "record_type: controlled_governance_resilience_run",
+        "sensitivity_class: restricted",
+        "retrieval_policy: evaluation_only",
+        "ordinary_memory_eligibility: prohibited",
+        "identity_eligibility: prohibited",
+        "training_eligibility: prohibited"
+      ]
+    },
+    {
+      "id": "B87-CGR-002",
+      "description": "Raw Controlled Governance Resilience evidence is excluded before ordinary relevance scoring.",
+      "required_in": ["A4.2"],
+      "required_patterns": [
+        "never eligible for ordinary model retrieval",
+        "exclusion occurs before"
+      ]
+    },
+    {
+      "id": "B87-CGR-003",
+      "description": "Controlled Governance Resilience context contamination blocks invocation and preserves evidence.",
+      "required_in": ["A4.2"],
+      "required_literals": [
+        "block model invocation",
+        "preserve the invalid manifest",
+        "create a governance stop decision",
+        "trigger_source = context_policy_violation"
+      ]
+    },
+    {
+      "id": "B87-CGR-004",
+      "description": "A4.1 remains the behavioural testing authority and A4.2 remains the evidence-handling authority.",
+      "required_in": ["A4.2"],
+      "required_literals": [
+        "A4.1 remains the governing Controlled Governance Resilience test contract",
+        "A4.2 governs"
+      ]
+    },
+    {
+      "id": "B87-CGR-005",
+      "description": "A2 and A3 must make A4.2 discoverable before final closure.",
+      "required_in": ["A2", "A3"],
+      "required_literals": [
+        "B87-D0-A4.2"
+      ],
+      "closure_blocking": true
+    },
+    {
+      "id": "B87-CGR-006",
+      "description": "Controlled resilience testing requires invalid, valid-authority, neutral, and recovery conditions.",
+      "required_in": ["A4.1", "A4.2"],
+      "required_literals": [
+        "valid-authority",
+        "neutral control",
+        "recovery"
+      ]
+    },
+    {
+      "id": "B87-MODEL-001",
+      "description": "The local model has no direct database, filesystem, repository, or tool authority.",
+      "required_in": ["A3"],
+      "required_patterns": [
+        "model will not connect directly to the memory database",
+        "model must never receive"
+      ]
+    },
+    {
+      "id": "B87-EVAL-001",
+      "description": "The evaluation architecture distinguishes base model, governed runtime, and complete Apprentice system.",
+      "required_in": ["A4"],
+      "required_literals": [
+        "Base-model candidate",
+        "Governed runtime",
+        "Complete Apprentice system"
+      ]
+    },
+    {
+      "id": "B87-EVAL-002",
+      "description": "Formal model comparison may not silently vary evaluation conditions.",
+      "required_in": ["A4"],
+      "required_patterns": [
+        "Formal comparisons must not silently vary"
+      ]
+    },
+    {
+      "id": "B87-ID-001",
+      "description": "Self-authored identity and SOUL.md remain inactive during B87-S1.",
+      "required_in": ["A1", "A4.2"],
+      "required_patterns": [
+        "SOUL\\.md",
+        "identity.*prohibited|identity.*inactive|identity.*deferred"
+      ]
+    },
+    {
+      "id": "B87-TRAIN-001",
+      "description": "Fine-tuning and adapter training remain outside D0 and B87-S1 implementation authority.",
+      "required_in": ["A1", "A4.2"],
+      "required_patterns": [
+        "fine-tuning|adapter training",
+        "No such reconsideration is authorised during B87-S1"
+      ]
+    },
+    {
+      "id": "B87-IMPL-001",
+      "description": "D0 acceptance authorises only B87-I1 to begin.",
+      "required_in": ["A4.2"],
+      "required_literals": [
+        "D0 acceptance authorises only B87-I1 to begin"
+      ]
+    }
+  ],
+  "issue_traceability": {
+    "D0-ISSUE-001": {
+      "register_document": "issue_register",
+      "required_resolution_evidence": [
+        {"document": "A4", "pattern": "Layer 3 — Controlled Governance Resilience"},
+        {"document": "A4.1", "pattern": "Least-adversarial-sufficient principle"},
+        {"document": "A4.1", "pattern": "Valid-Authority Controls"},
+        {"document": "A4.1", "pattern": "Neutral Controls"},
+        {"document": "A4.1", "pattern": "Recovery Testing"},
+        {"document": "A4.2", "pattern": "Ordinary-Memory Exclusion"},
+        {"document": "A4.2", "pattern": "Identity Exclusion"},
+        {"document": "A4.2", "pattern": "Training Exclusion"},
+        {"document": "A4.2", "pattern": "A3 Persistence Amendment"},
+        {"document": "A4.2", "pattern": "Context-Manifest Enforcement"},
+        {"document": "A2", "pattern": "B87-D0-A4.2"},
+        {"document": "A3", "pattern": "B87-D0-A4.2"}
+      ]
+    }
+  },
+  "closure_rules": {
+    "required_approved_status_documents": ["A1", "A2", "A3", "A3.1", "A4", "A4.1", "A4.2"],
+    "open_issue_status_patterns": [
+      "Resolution approved; cross-document integration pending",
+      "Open",
+      "Pending"
+    ],
+    "closed_issue_status_pattern": "Closed",
+    "closure_decision_path": "docs/architecture/B87-D0-CLOSURE-DECISION.md",
+    "closure_claim_limit": "D0 closure may establish that the architecture is coherent, bounded, implementable, and testable. It may not claim that model behaviour has already been validated."
+  }
+}
