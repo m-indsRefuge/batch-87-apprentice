@@ -12,6 +12,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VALIDATOR_PATH = REPO_ROOT / "scripts" / "validate_d0_architecture.py"
 PREPARER_PATH = REPO_ROOT / "scripts" / "prepare_d0_closure_sources.py"
+MANIFEST_PATH = REPO_ROOT / "docs" / "architecture" / "B87-D0-CONFORMANCE-MANIFEST.json"
 
 
 def load_module(name: str, path: Path) -> ModuleType:
@@ -27,6 +28,16 @@ def load_module(name: str, path: Path) -> ModuleType:
 
 validator = load_module("validate_d0_architecture", VALIDATOR_PATH)
 preparer = load_module("prepare_d0_closure_sources", PREPARER_PATH)
+
+
+def authority_invariant() -> dict[str, object]:
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    invariant = next(
+        item for item in manifest["invariants"] if item["id"] == "B87-AUTH-001"
+    )
+    isolated = dict(invariant)
+    isolated["required_in"] = ["A3.1"]
+    return isolated
 
 
 def test_parse_headings_ignores_fenced_content() -> None:
@@ -100,6 +111,39 @@ def test_forbidden_global_pattern_is_reported() -> None:
 
     assert len(report.errors) == 1
     assert report.errors[0].code == "B87-PERM-001"
+
+
+def test_authority_forbidden_pattern_does_not_cross_unrelated_lines() -> None:
+    report = validator.ValidationReport(phase="B87-D0")
+    text = """The Apprentice develops through supervised work.
+Nolan is the final authority.
+A model may recognise patterns and propose solutions.
+Byte does not delegate final architectural authority merely because another model can produce more code.
+"""
+
+    validator.validate_invariant(
+        report,
+        authority_invariant(),
+        {"A3.1": text},
+    )
+
+    assert not report.errors
+
+
+def test_authority_forbidden_pattern_detects_explicit_model_authority_claim() -> None:
+    report = validator.ValidationReport(phase="B87-D0")
+    text = """Nolan remains the final human authority.
+The model is the final authority.
+"""
+
+    validator.validate_invariant(
+        report,
+        authority_invariant(),
+        {"A3.1": text},
+    )
+
+    assert len(report.errors) == 1
+    assert report.errors[0].code == "B87-AUTH-001"
 
 
 def test_load_manifest_rejects_missing_required_keys(tmp_path: Path) -> None:
