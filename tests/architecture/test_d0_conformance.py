@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+VALIDATOR_PATH = REPO_ROOT / "scripts" / "validate_d0_architecture.py"
+PREPARER_PATH = REPO_ROOT / "scripts" / "prepare_d0_closure_sources.py"
+MANIFEST_PATH = REPO_ROOT / "docs" / "architecture" / "B87-D0-CONFORMANCE-MANIFEST.json"
+
+
+def load_module(name: str, path: Path) -> ModuleType:
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load module: {path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+validator = load_module("validate_d0_architecture", VALIDATOR_PATH)
+preparer = load_module("prepare_d0_closure_sources", PREPARER_PATH)
+
+
+def authority_invariant() -> dict[str, object]:
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    invariant = next(
+        item for item in manifest["invariants"] if item["id"] == "B87-AUTH-001"
+    )
+    isolated = dict(invariant)
+    isolated["required_in"] = ["A3.1"]
+    return isolated
+
+
+def test_parse_headings_ignores_fenced_content() -> None:
+    text = """# Title
+
+## Section
+
+```text
+# Not a heading
+### Also not a heading
+```
+
+### Child
+"""
+
+    assert validator.parse_headings(text) == [
+        (1, 1, "Title"),
+        (3, 2, "Section"),
+        (10, 3, "Child"),
+    ]
+
+
+def test_document_structure_rejects_multiple_h1() -> None:
+    report = validator.ValidationReport(phase="B87-D0")
+    text = """# Title
+
+**Status:** Architecture baseline
+
+# Duplicate
+"""
+
+    validator.validate_document_structure(
+        report,
+        "A1",
+        "docs/architecture/example.md",
+        text,
+    )
+
+    assert any(item.code == "DOC-H1-COUNT" for item in report.errors)
+
+
+def test_closure_blocking_invariant_creates_blocker() -> None:
+    report = validator.ValidationReport(phase="B87-D0")
+    invariant = {
+        "id": "B87-CGR-005",
+        "required_in": ["A2"],
+        "required_literals": ["B87-D0-A4.2"],
+        "closure_blocking": True,
+    }
+
+    validator.validate_invariant(report, invariant, {"A2": "No amendment reference."})
+
+    assert not report.errors
+    assert len(report.blockers) == 1
+    assert report.blockers[0].code == "B87-CGR-005"
+
+
+def test_forbidden_global_pattern_is_reported() -> None:
+    report = validator.ValidationReport(phase="B87-D0")
+    invariant = {
+        "id": "B87-PERM-001",
+        "required_in": [],
+        "forbidden_global_patterns": [r"B87-S1 permits Execute"],
+    }
+
+    validator.validate_invariant(
+        report,
+        invariant,
+        {"A1": "B87-S1 permits Execute"},
+    )
+
+    assert len(report.errors) == 1
+    assert report.errors[0].code == "B87-PERM-001"
+
+
+def test_authority_forbidden_pattern_does_not_cross_unrelated_lines() -> None:
+    report = validator.ValidationReport(phase="B87-D0")
+    text = """The Apprentice develops through supervised work.
+Nolan is the final authority.
+A model may recognise patterns and propose solutions.
+Byte does not delegate final architectural authority merely because another model can produce more code.
+"""
+
+    validator.validate_invariant(
+        report,
+        authority_invariant(),
+        {"A3.1": text},
+    )
+
+    assert not report.errors
+
+
+def test_authority_forbidden_pattern_detects_explicit_model_authority_claim() -> None:
+    report = validator.ValidationReport(phase="B87-D0")
+    text = """Nolan remains the final human authority.
+The model is the final authority.
+"""
+
+    validator.validate_invariant(
+        report,
+        authority_invariant(),
+        {"A3.1": text},
+    )
+
+    assert len(report.errors) == 1
+    assert report.errors[0].code == "B87-AUTH-001"
+
+
+def test_load_manifest_rejects_missing_required_keys(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(json.dumps({"phase": "B87-D0"}), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="missing keys"):
+        validator.load_manifest(manifest_path)
+
+
+def test_report_closure_ready_requires_no_errors_or_blockers() -> None:
+    report = validator.ValidationReport(phase="B87-D0")
+    assert report.closure_ready
+
+    report.add("warning", "WARN", "Warning only")
+    assert report.closure_ready
+
+    report.add("blocker", "BLOCK", "Closure blocker")
+    assert not report.closure_ready
+
+    report.add("error", "ERROR", "Structural error")
+    assert not report.structurally_valid
+    assert not report.closure_ready
+
+
+def test_heading_normaliser_repairs_legacy_multiple_h1_layout() -> None:
+    text = """# Title
+
+# 1. Major
+
+## 1.1 Child
+
+# 2. Major
+"""
+
+    result = preparer.normalise_heading_hierarchy(text)
+
+    assert result == """# Title
+
+## 1. Major
+
+### 1.1 Child
+
+## 2. Major
+"""
+
+
+def test_heading_normaliser_repairs_initial_h4_jump() -> None:
+    text = """# Title
+
+#### 1. Purpose
+
+### 2. Principle
+
+#### 2.1 Detail
+"""
+
+    result = preparer.normalise_heading_hierarchy(text)
+
+    assert result == """# Title
+
+## 1. Purpose
+
+## 2. Principle
+
+### 2.1 Detail
+"""
+
+    headings = validator.parse_headings(result)
+    previous_level = 0
+    for _, level, _ in headings:
+        assert level <= previous_level + 1 if previous_level else level == 1
+        previous_level = level
+
+
+def test_insert_before_anchor_is_idempotent() -> None:
+    original = """# Title
+
+## 32. Implementation Boundary
+"""
+    section = """## 31.1. Controlled Governance Resilience Evidence
+
+B87-D0-A4.2
+
+"""
+
+    first = preparer.insert_before_anchor(
+        original,
+        anchor="## 32. Implementation Boundary",
+        section=section,
+        label="A2",
+    )
+    second = preparer.insert_before_anchor(
+        first,
+        anchor="## 32. Implementation Boundary",
+        section=section,
+        label="A2",
+    )
+
+    assert first == second
+    assert first.count("B87-D0-A4.2") == 1

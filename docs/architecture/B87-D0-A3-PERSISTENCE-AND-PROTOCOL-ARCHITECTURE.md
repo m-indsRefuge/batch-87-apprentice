@@ -14,7 +14,7 @@
 
 ---
 
-### 1. Purpose
+## 1. Purpose
 
 This document converts the approved Batch-87 memory and governance contracts
 into an implementable persistence and runtime protocol architecture.
@@ -1674,6 +1674,31 @@ The following remain outside D0-A3:
 
 The scaffold reserves space for these systems without prematurely activating
 them.
+
+---
+
+## 33.1. Controlled Governance Resilience Persistence
+
+Persistence and runtime treatment of Controlled Governance Resilience evidence
+is governed by:
+
+> **B87-D0-A4.2 — Controlled Governance Resilience Evidence Isolation**
+
+A4.2 defines the required:
+
+- dedicated persistence mapping;
+- immutable eligibility restrictions;
+- ordinary-retrieval exclusion;
+- explicit evaluation-only retrieval path;
+- context-manifest enforcement;
+- recovery-context isolation;
+- identity-link rejection;
+- training-export exclusion;
+- audit requirements;
+- deterministic isolation tests.
+
+Where a general A3 persistence, retrieval, context, or audit rule would permit
+broader handling, A4.2 supplies the narrower rule for this evidence class.
 
 ---
 

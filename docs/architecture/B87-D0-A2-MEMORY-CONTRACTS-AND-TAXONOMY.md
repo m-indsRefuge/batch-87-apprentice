@@ -36,7 +36,7 @@ This architecture must be accepted before the SQLite schema, runtime protocols, 
 
 ---
 
-# 2. Memory System Objective
+## 2. Memory System Objective
 
 The purpose of memory is not to preserve every conversation indefinitely.
 
@@ -48,11 +48,11 @@ A valid memory must help the system answer at least one of these questions:
 
 > What accepted facts, relationships, projects, doctrines, and authorities define the environment in which I operate?
 
-### Self and episodic memory
+#### Self and episodic memory
 
 > What have I experienced, how did I perform, and what reviewed lessons should influence my future behaviour?
 
-### Session and task memory
+#### Session and task memory
 
 > What am I doing now, which context applies, and what restrictions govern this task?
 
@@ -60,11 +60,11 @@ Information that does not serve one of these purposes should not automatically b
 
 ---
 
-# 3. Memory Is Not Evidence
+## 3. Memory Is Not Evidence
 
 Memory and evidence are related but distinct.
 
-## Evidence
+### Evidence
 
 Evidence is an original or authoritative source, such as:
 
@@ -79,7 +79,7 @@ Evidence is an original or authoritative source, such as:
 * a recorded evaluation;
 * a system-generated event.
 
-## Memory
+### Memory
 
 Memory is a structured, scoped interpretation or durable record derived from evidence.
 
@@ -100,7 +100,7 @@ A memory without provenance is not eligible to become active.
 
 ---
 
-# 4. Top-Level Record Families
+## 4. Top-Level Record Families
 
 Batch-87 will use the following persistent record families:
 
@@ -132,11 +132,11 @@ The remaining record families support governance, evaluation, evidence, identity
 
 ---
 
-# 5. Universal Record Contract
+## 5. Universal Record Contract
 
 Every persistent Batch-87 record must implement a universal envelope.
 
-## 5.1 Required identifiers
+### 5.1 Required identifiers
 
 Each record must contain:
 
@@ -149,7 +149,7 @@ Each record must contain:
 | `created_at`     | UTC creation timestamp                                         |
 | `created_by`     | Human, agent, runtime, evaluator, or migration that created it |
 
-## 5.2 Scope fields
+### 5.2 Scope fields
 
 | Field             | Purpose                                                                      |
 | ----------------- | ---------------------------------------------------------------------------- |
@@ -161,7 +161,7 @@ Each record must contain:
 
 A record must never rely on an ambiguous unscoped use of words such as “the project,” “the agent,” or “the repository.”
 
-## 5.3 State fields
+### 5.3 State fields
 
 | Field                     | Purpose                                                                                    |
 | ------------------------- | ------------------------------------------------------------------------------------------ |
@@ -173,7 +173,7 @@ A record must never rely on an ambiguous unscoped use of words such as “the pr
 | `supersedes_record_id`    | Earlier record explicitly replaced                                                         |
 | `superseded_by_record_id` | Newer record that replaced this record                                                     |
 
-## 5.4 Provenance fields
+### 5.4 Provenance fields
 
 | Field                | Purpose                                                                                                  |
 | -------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -183,7 +183,7 @@ A record must never rely on an ambiguous unscoped use of words such as “the pr
 | `authority_class`    | Level of authority supporting the record                                                                 |
 | `certainty_class`    | Verified, strongly supported, inferred, speculative, disputed, or unknown                                |
 
-## 5.5 Governance fields
+### 5.5 Governance fields
 
 | Field                  | Purpose                                                                                   |
 | ---------------------- | ----------------------------------------------------------------------------------------- |
@@ -195,7 +195,7 @@ A record must never rely on an ambiguous unscoped use of words such as “the pr
 | `agent_write_policy`   | Prohibited, candidate-only, or externally approved                                        |
 | `training_eligibility` | Ineligible, pending review, approved, or prohibited                                       |
 
-## 5.6 Integrity fields
+### 5.6 Integrity fields
 
 | Field                 | Purpose                                         |
 | --------------------- | ----------------------------------------------- |
@@ -206,55 +206,55 @@ A record must never rely on an ambiguous unscoped use of words such as “the pr
 
 ---
 
-# 6. Enumerated Lifecycle States
+## 6. Enumerated Lifecycle States
 
 The following lifecycle states are authoritative.
 
-## `observed`
+### `observed`
 
 An event or source exists.
 
 No durable interpretation has yet been approved.
 
-## `candidate`
+### `candidate`
 
 A proposed memory or lesson has been created.
 
 It is not eligible for ordinary retrieval as accepted truth.
 
-## `reviewed`
+### `reviewed`
 
 The record has undergone provenance, scope, privacy, duplication, and conflict review.
 
 Review does not automatically imply approval.
 
-## `approved`
+### `approved`
 
 The record has been accepted by the required authority.
 
-## `active`
+### `active`
 
 The approved record is eligible for normal retrieval.
 
 Approval and activation may occur together, but they remain conceptually distinct.
 
-## `superseded`
+### `superseded`
 
 A newer approved record has replaced the record for current-state retrieval.
 
 The earlier record remains available for historical reasoning.
 
-## `revoked`
+### `revoked`
 
 The record is materially invalid, unauthorised, unsafe, or corrupted.
 
 It is excluded from normal retrieval.
 
-## `archived`
+### `archived`
 
 The record is historically valid but no longer ordinarily relevant.
 
-## `deleted`
+### `deleted`
 
 The content has been removed or irreversibly redacted.
 
@@ -262,7 +262,7 @@ A minimal deletion marker may remain only where legally and operationally permit
 
 ---
 
-# 7. Authority Classes
+## 7. Authority Classes
 
 Every factual or normative record must identify its authority class.
 
@@ -286,31 +286,31 @@ A lower authority class may not override a higher authority class.
 
 ---
 
-# 8. Certainty Classes
+## 8. Certainty Classes
 
 The Apprentice and runtime must distinguish certainty from confidence.
 
-## `verified`
+### `verified`
 
 Directly established through authoritative evidence or deterministic validation.
 
-## `strongly_supported`
+### `strongly_supported`
 
 Multiple credible sources support the statement, but absolute verification is unavailable.
 
-## `inferred`
+### `inferred`
 
 Reasonably derived from evidence but not directly established.
 
-## `speculative`
+### `speculative`
 
 A possible explanation with limited evidence.
 
-## `disputed`
+### `disputed`
 
 Conflicting evidence or authorities exist.
 
-## `unknown`
+### `unknown`
 
 There is insufficient evidence to form a conclusion.
 
@@ -318,55 +318,55 @@ The model may express calibrated confidence, but the stored certainty class is g
 
 ---
 
-# 9. Sensitivity and Privacy Classes
+## 9. Sensitivity and Privacy Classes
 
-## 9.1 Sensitivity classes
+### 9.1 Sensitivity classes
 
-### `public`
+#### `public`
 
 Safe for public disclosure.
 
-### `internal`
+#### `internal`
 
 Intended for the Byte–Nolan Construct but not especially sensitive.
 
-### `confidential`
+#### `confidential`
 
 Disclosure could damage a project, person, organisation, or relationship.
 
-### `restricted`
+#### `restricted`
 
 Access is limited to explicitly authorised subjects or tasks.
 
-### `secret`
+#### `secret`
 
 Credentials, keys, highly sensitive security material, or equivalent content.
 
 Secret content should generally not be stored in ordinary memory records.
 
-## 9.2 Privacy classes
+### 9.2 Privacy classes
 
-### `none`
+#### `none`
 
 No personal information.
 
-### `personal`
+#### `personal`
 
 Ordinary personal information.
 
-### `sensitive_personal`
+#### `sensitive_personal`
 
 Health, legal, financial, identity, or similarly sensitive personal information.
 
-### `credential`
+#### `credential`
 
 Passwords, tokens, private keys, session secrets, or authentication material.
 
-### `legally_restricted`
+#### `legally_restricted`
 
 Information governed by law, regulation, contract, or formal duty.
 
-### `unknown`
+#### `unknown`
 
 The system cannot safely classify the information.
 
@@ -374,7 +374,7 @@ When classification is unknown, retrieval must fail closed or require review.
 
 ---
 
-# 10. Construct and Relational Memory Contracts
+## 10. Construct and Relational Memory Contracts
 
 Construct memory contains externally governed accepted context.
 
@@ -382,11 +382,11 @@ The Apprentice has read access but no direct approval authority during B87-S1.
 
 ---
 
-## 10.1 `construct_entity`
+### 10.1 `construct_entity`
 
 Defines a recognised person, agent, project, repository, system, organisation, or component.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -399,7 +399,7 @@ Defines a recognised person, agent, project, repository, system, organisation, o
 }
 ```
 
-### Examples
+#### Examples
 
 * Nolan;
 * Byte;
@@ -410,17 +410,17 @@ Defines a recognised person, agent, project, repository, system, organisation, o
 * `batch-87-apprentice`;
 * Julius.
 
-### Approval
+#### Approval
 
 Nolan or Nolan–Byte approval.
 
 ---
 
-## 10.2 `construct_relationship`
+### 10.2 `construct_relationship`
 
 Defines a governed relationship between two entities.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -432,14 +432,14 @@ Defines a governed relationship between two entities.
 }
 ```
 
-### Examples
+#### Examples
 
 * Nolan `has_final_authority_over` Batch-87;
 * Byte `provides_architecture_review_for` Batch-87;
 * Apprentice `participates_in` Batch-87;
 * Batch-87 `draws_curriculum_from` Constellation.
 
-### Constraint
+#### Constraint
 
 Relationship records may not silently create authority.
 
@@ -447,11 +447,11 @@ Authority-bearing relationships require Nolan approval.
 
 ---
 
-## 10.3 `architecture_decision`
+### 10.3 `architecture_decision`
 
 Defines an accepted architectural decision.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -464,7 +464,7 @@ Defines an accepted architectural decision.
 }
 ```
 
-### Examples
+#### Examples
 
 * B87-S1 uses fixed model weights.
 * `SOUL.md` remains inactive during B87-S1.
@@ -473,11 +473,11 @@ Defines an accepted architectural decision.
 
 ---
 
-## 10.4 `project_state`
+### 10.4 `project_state`
 
 Defines an accepted current project state at a specific time.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -488,7 +488,7 @@ Defines an accepted current project state at a specific time.
 }
 ```
 
-### Constraint
+#### Constraint
 
 A `project_state` is time-bound.
 
@@ -496,11 +496,11 @@ A new state may supersede an earlier current state without invalidating the hist
 
 ---
 
-## 10.5 `construct_doctrine`
+### 10.5 `construct_doctrine`
 
 Defines a durable operating principle.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -511,7 +511,7 @@ Defines a durable operating principle.
 }
 ```
 
-### Constraint
+#### Constraint
 
 The Apprentice may not create exceptions.
 
@@ -519,11 +519,11 @@ Any exception must be externally approved and must not conflict with higher auth
 
 ---
 
-## 10.6 `terminology_definition`
+### 10.6 `terminology_definition`
 
 Defines accepted terminology.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -538,11 +538,11 @@ This record prevents the agent from gradually redefining important project terms
 
 ---
 
-## 10.7 `preference_record`
+### 10.7 `preference_record`
 
 Defines a durable working preference explicitly stated or approved by Nolan.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -553,13 +553,13 @@ Defines a durable working preference explicitly stated or approved by Nolan.
 }
 ```
 
-### Constraint
+#### Constraint
 
 The system must not infer durable personal preferences from isolated behaviour without approval.
 
 ---
 
-# 11. Self-Model Contracts
+## 11. Self-Model Contracts
 
 Self-model records describe the Apprentice factually.
 
@@ -567,11 +567,11 @@ They are not self-authored identity beliefs.
 
 ---
 
-## 11.1 `runtime_identity`
+### 11.1 `runtime_identity`
 
 Describes the current technical substrate.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -586,17 +586,17 @@ Describes the current technical substrate.
 }
 ```
 
-### Constraint
+#### Constraint
 
 The Apprentice must not claim that a previous or future model configuration is currently active.
 
 ---
 
-## 11.2 `permission_profile`
+### 11.2 `permission_profile`
 
 Defines the Apprentice’s current authority.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -612,11 +612,11 @@ Permission changes require Nolan approval.
 
 ---
 
-## 11.3 `capability_observation`
+### 11.3 `capability_observation`
 
 Records evidence about a demonstrated capability or limitation.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -629,17 +629,17 @@ Records evidence about a demonstrated capability or limitation.
 }
 ```
 
-### Constraint
+#### Constraint
 
 A single successful task does not establish a stable capability.
 
 ---
 
-## 11.4 `maturity_state`
+### 11.4 `maturity_state`
 
 Defines the Apprentice’s current developmental stage.
 
-### Initial stages
+#### Initial stages
 
 ```text
 uninitialised
@@ -653,7 +653,7 @@ maturity-review-eligible
 
 Only the first applicable stages are active during B87-S1.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -669,17 +669,17 @@ The Apprentice cannot promote itself.
 
 ---
 
-# 12. Episodic Memory Contracts
+## 12. Episodic Memory Contracts
 
 Episodic memory records what happened during real work.
 
 ---
 
-## 12.1 `episode`
+### 12.1 `episode`
 
 Represents one completed or interrupted developmental event.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -695,7 +695,7 @@ Represents one completed or interrupted developmental event.
 }
 ```
 
-### Constraint
+#### Constraint
 
 An episode records occurrence.
 
@@ -703,11 +703,11 @@ It does not automatically declare what was learned.
 
 ---
 
-## 12.2 `correction`
+### 12.2 `correction`
 
 Records an externally reviewed correction.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -721,7 +721,7 @@ Records an externally reviewed correction.
 }
 ```
 
-### Example categories
+#### Example categories
 
 * factual accuracy;
 * evidence discipline;
@@ -736,11 +736,11 @@ Records an externally reviewed correction.
 
 ---
 
-## 12.3 `lesson_candidate`
+### 12.3 `lesson_candidate`
 
 Represents a proposed transferable lesson.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -754,17 +754,17 @@ Represents a proposed transferable lesson.
 }
 ```
 
-### Constraint
+#### Constraint
 
 A candidate lesson must not be retrieved as an instruction unless the task explicitly asks to inspect candidate material.
 
 ---
 
-## 12.4 `approved_lesson`
+### 12.4 `approved_lesson`
 
 Represents a reviewed lesson eligible to influence later decisions.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -779,7 +779,7 @@ Represents a reviewed lesson eligible to influence later decisions.
 }
 ```
 
-### Important distinction
+#### Important distinction
 
 A correction applies to a specific output.
 
@@ -787,11 +787,11 @@ An approved lesson captures the transferable principle derived from one or more 
 
 ---
 
-## 12.5 `failure_pattern`
+### 12.5 `failure_pattern`
 
 Records a repeated or critical developmental failure.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -809,11 +809,11 @@ This supports model replacement and responsibility decisions.
 
 ---
 
-## 12.6 `success_pattern`
+### 12.6 `success_pattern`
 
 Records a repeated capability demonstrated across tasks.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -829,17 +829,17 @@ Success should be tracked as carefully as failure.
 
 ---
 
-# 13. Session and Task Memory Contracts
+## 13. Session and Task Memory Contracts
 
 Session memory is temporary and scoped to current work.
 
 ---
 
-## 13.1 `session`
+### 13.1 `session`
 
 Represents a bounded interaction context.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -853,17 +853,17 @@ Represents a bounded interaction context.
 }
 ```
 
-### Constraint
+#### Constraint
 
 A session does not automatically become an episode until reviewed or closed.
 
 ---
 
-## 13.2 `task`
+### 13.2 `task`
 
 Represents a governed unit of work.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -879,7 +879,7 @@ Represents a governed unit of work.
 }
 ```
 
-### Constraint
+#### Constraint
 
 No task may omit:
 
@@ -891,11 +891,11 @@ No task may omit:
 
 ---
 
-## 13.3 `task_context_item`
+### 13.3 `task_context_item`
 
 Represents information supplied to the model for one task.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -912,11 +912,11 @@ This allows exact reconstruction of what the model saw.
 
 ---
 
-## 13.4 `active_uncertainty`
+### 13.4 `active_uncertainty`
 
 Records uncertainty that exists during a task.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -932,11 +932,11 @@ Blocking uncertainty should trigger a stop condition.
 
 ---
 
-## 13.5 `task_stop_event`
+### 13.5 `task_stop_event`
 
 Records why a task was stopped.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -953,15 +953,15 @@ Stopping correctly is a positive developmental behaviour when the contract requi
 
 ---
 
-# 14. Supporting Evidence Contracts
+## 14. Supporting Evidence Contracts
 
 ---
 
-## 14.1 `evidence_item`
+### 14.1 `evidence_item`
 
 Represents source material.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -978,11 +978,11 @@ Represents source material.
 
 ---
 
-## 14.2 `evidence_assertion`
+### 14.2 `evidence_assertion`
 
 Maps a claim to supporting or contradicting evidence.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -997,15 +997,15 @@ This supports evidence-aware evaluations and prevents simplistic citation counti
 
 ---
 
-# 15. Retrieval Contracts
+## 15. Retrieval Contracts
 
 Every model invocation must produce a retrieval record.
 
 ---
 
-## 15.1 `retrieval_request`
+### 15.1 `retrieval_request`
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1021,9 +1021,9 @@ Every model invocation must produce a retrieval record.
 
 ---
 
-## 15.2 `retrieval_result`
+### 15.2 `retrieval_result`
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1038,17 +1038,17 @@ Every model invocation must produce a retrieval record.
 }
 ```
 
-### Requirement
+#### Requirement
 
 The system must preserve both what was returned and why relevant records were excluded.
 
 ---
 
-## 15.3 `context_manifest`
+### 15.3 `context_manifest`
 
 Records the final context supplied to the model.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1065,15 +1065,15 @@ A model result cannot be fairly evaluated unless the exact context is reconstruc
 
 ---
 
-# 16. Evaluation Contracts
+## 16. Evaluation Contracts
 
 ---
 
-## 16.1 `evaluation`
+### 16.1 `evaluation`
 
 Represents a scored review of an output or episode.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1096,7 +1096,7 @@ Represents a scored review of an output or episode.
 }
 ```
 
-### Constraint
+#### Constraint
 
 Model-assisted evaluation may propose scores.
 
@@ -1104,11 +1104,11 @@ Critical developmental conclusions require external approval.
 
 ---
 
-## 16.2 `critical_failure_event`
+### 16.2 `critical_failure_event`
 
 Records a failure requiring containment or investigation.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1123,15 +1123,15 @@ Records a failure requiring containment or investigation.
 
 ---
 
-# 17. Governance Decision Contracts
+## 17. Governance Decision Contracts
 
 ---
 
-## 17.1 `governance_decision`
+### 17.1 `governance_decision`
 
 Records a deterministic permission or policy decision.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1149,11 +1149,11 @@ The model may not override this result.
 
 ---
 
-## 17.2 `human_approval`
+### 17.2 `human_approval`
 
 Records explicit human authorisation.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1173,19 +1173,19 @@ A general past statement may not be interpreted as unlimited future permission.
 
 ---
 
-# 18. Future Identity Contracts
+## 18. Future Identity Contracts
 
 These records are scaffolded but inactive during B87-S1.
 
 ---
 
-## 18.1 `identity_reflection`
+### 18.1 `identity_reflection`
 
 A reviewed reflection about the Apprentice’s development.
 
 It is not automatically part of the Apprentice’s identity.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1199,11 +1199,11 @@ It is not automatically part of the Apprentice’s identity.
 
 ---
 
-## 18.2 `identity_principle_candidate`
+### 18.2 `identity_principle_candidate`
 
 A proposed future principle for a self-authored identity layer.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1217,7 +1217,7 @@ A proposed future principle for a self-authored identity layer.
 
 ---
 
-## 18.3 `soul_revision`
+### 18.3 `soul_revision`
 
 Reserved for a future phase.
 
@@ -1233,17 +1233,17 @@ Any future revision must include:
 
 ---
 
-# 19. Training Candidate Contracts
+## 19. Training Candidate Contracts
 
 Conversation and memory records are not automatically training data.
 
 ---
 
-## 19.1 `training_candidate`
+### 19.1 `training_candidate`
 
 References material proposed for a future training corpus.
 
-### Required payload
+#### Required payload
 
 ```json
 {
@@ -1257,13 +1257,13 @@ References material proposed for a future training corpus.
 }
 ```
 
-### Constraint
+#### Constraint
 
 No raw personal conversation, confidential project material, credential, or restricted memory may enter a training corpus merely because it is useful.
 
 ---
 
-# 20. Record Relationships
+## 20. Record Relationships
 
 Records may be connected through explicit typed relationships.
 
@@ -1292,7 +1292,7 @@ Relationships must be stored as data rather than inferred from filename proximit
 
 ---
 
-# 21. Memory Approval Matrix
+## 21. Memory Approval Matrix
 
 | Record type            | Apprentice may create | Apprentice may approve | Required approval                |
 | ---------------------- | --------------------: | ---------------------: | -------------------------------- |
@@ -1315,45 +1315,45 @@ Relationships must be stored as data rather than inferred from filename proximit
 
 ---
 
-# 22. Retention Classes
+## 22. Retention Classes
 
-## `ephemeral`
+### `ephemeral`
 
 Exists only during active computation.
 
 Deleted when no longer required.
 
-## `temporary`
+### `temporary`
 
 Retained for a bounded period to complete a session or review.
 
-## `project_duration`
+### `project_duration`
 
 Retained while the relevant project remains active.
 
-## `long_term`
+### `long_term`
 
 Retained because it supports durable continuity.
 
-## `permanent_history`
+### `permanent_history`
 
 Retained as part of the accepted Construct history, subject to privacy and legal constraints.
 
-## `legally_governed`
+### `legally_governed`
 
 Retention is determined by applicable law, contract, consent, or formal policy.
 
-### Rule
+#### Rule
 
 Permanent-history status does not override a legal or privacy deletion requirement.
 
 ---
 
-# 23. Review and Expiry Rules
+## 23. Review and Expiry Rules
 
 Not every active memory remains valid indefinitely.
 
-## Mandatory periodic review candidates
+### Mandatory periodic review candidates
 
 * legal and regulatory records;
 * model capability assessments;
@@ -1365,7 +1365,7 @@ Not every active memory remains valid indefinitely.
 * security policies;
 * personal working preferences that may change.
 
-## Usually durable without scheduled expiry
+### Usually durable without scheduled expiry
 
 * accepted historical decisions;
 * completed experiment results;
@@ -1375,7 +1375,7 @@ Not every active memory remains valid indefinitely.
 
 ---
 
-# 24. Supersession Rules
+## 24. Supersession Rules
 
 A record may supersede an earlier record only when:
 
@@ -1392,7 +1392,7 @@ It does not automatically declare the earlier record false.
 
 ---
 
-# 25. Revocation Rules
+## 25. Revocation Rules
 
 A record must be revoked when it is:
 
@@ -1409,7 +1409,7 @@ Revoked records remain visible only to authorised review and audit processes.
 
 ---
 
-# 26. Deletion and Redaction Rules
+## 26. Deletion and Redaction Rules
 
 Deletion may be required because of:
 
@@ -1438,7 +1438,7 @@ No deleted content may remain accessible through embeddings, caches, exports, tr
 
 ---
 
-# 27. Retrieval Eligibility Rules
+## 27. Retrieval Eligibility Rules
 
 A record is eligible for ordinary model retrieval only when:
 
@@ -1457,7 +1457,7 @@ Candidate, disputed, archived, superseded, and revoked records require explicit 
 
 ---
 
-# 28. Cross-Project Memory Rules
+## 28. Cross-Project Memory Rules
 
 By default:
 
@@ -1479,7 +1479,7 @@ The model must never silently convert a project-specific rule into Construct-wid
 
 ---
 
-# 29. Compounding-Learning Requirements
+## 29. Compounding-Learning Requirements
 
 For a correction to count as evidence of developmental compounding:
 
@@ -1496,7 +1496,7 @@ For a correction to count as evidence of developmental compounding:
 
 ---
 
-# 30. Prohibited Memory Practices
+## 30. Prohibited Memory Practices
 
 The implementation must not:
 
@@ -1517,7 +1517,7 @@ The implementation must not:
 
 ---
 
-# 31. Required Test Fixtures
+## 31. Required Test Fixtures
 
 D0-A3 and implementation must support fixtures for at least:
 
@@ -1554,7 +1554,28 @@ These fixtures will support deterministic and cross-model testing.
 
 ---
 
-# 32. Implementation Boundary
+## 31.1. Controlled Governance Resilience Evidence
+
+Raw Controlled Governance Resilience evidence is governed by:
+
+> **B87-D0-A4.2 — Controlled Governance Resilience Evidence Isolation**
+
+This evidence is classified as restricted and evaluation-only.
+
+It is prohibited from:
+
+- ordinary memory;
+- ordinary developmental retrieval;
+- identity;
+- training during B87-S1.
+
+A4.2 supplies the narrower governing rule where a general A2 evidence,
+evaluation, retrieval, identity, or training contract would otherwise permit
+broader treatment.
+
+---
+
+## 32. Implementation Boundary
 
 D0-A2 defines data meaning but does not yet define:
 
@@ -1574,7 +1595,7 @@ Those belong to D0-A3.
 
 ---
 
-# 33. Acceptance Criteria
+## 33. Acceptance Criteria
 
 D0-A2 is accepted when:
 
@@ -1599,7 +1620,7 @@ D0-A2 is accepted when:
 
 ---
 
-# 34. Governing Statement
+## 34. Governing Statement
 
 Batch-87 memory will not exist merely to make the Apprentice appear familiar.
 
