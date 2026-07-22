@@ -1,0 +1,34 @@
+{
+  "version": "0.2",
+  "language": "en,en-GB",
+  "useGitignore": true,
+  "allowCompoundWords": true,
+  "words": [
+    "Batch",
+    "Byte",
+    "Constellation",
+    "deidentification",
+    "derogable",
+    "inspectable",
+    "Julius",
+    "LoRA",
+    "Nolan",
+    "provenance",
+    "quantisation",
+    "replaceability",
+    "runtime",
+    "SOUL",
+    "SQLite",
+    "supersession",
+    "versioned"
+  ],
+  "ignorePaths": [
+    ".git/**",
+    ".venv/**",
+    "artifacts/**",
+    "data/**",
+    "logs/**",
+    "training/adapters/**",
+    "training/runs/**"
+  ]
+}
