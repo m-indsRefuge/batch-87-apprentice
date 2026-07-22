@@ -76,21 +76,49 @@ def read_required(repo_root: Path, path: Path) -> str:
         raise RuntimeError(f"Required closure file is missing: {path}") from exc
 
 
-def replace_exact_once(text: str, old: str, new: str, label: str) -> str:
-    if new in text:
-        if old in text:
-            raise RuntimeError(
-                f"{label} contains both pending and approved forms; manual review required."
-            )
-        return text
+def replace_metadata_line(
+    text: str,
+    pending: str,
+    approved: str,
+    label: str,
+) -> str:
+    """Replace one metadata line and canonicalise its trailing whitespace.
 
-    count = text.count(old)
-    if count != 1:
+    Markdown source files may use two trailing spaces for a hard line break.
+    Closure metadata must not retain those spaces because ``git diff --check``
+    correctly reports trailing whitespace on newly changed lines.
+    """
+
+    lines = text.splitlines()
+    pending_indexes = [
+        index for index, line in enumerate(lines) if line.rstrip(" \t") == pending
+    ]
+    approved_indexes = [
+        index for index, line in enumerate(lines) if line.rstrip(" \t") == approved
+    ]
+
+    if pending_indexes and approved_indexes:
         raise RuntimeError(
-            f"{label}: expected exactly one pending value; found {count}."
+            f"{label} contains both pending and approved forms; manual review required."
         )
 
-    return text.replace(old, new, 1)
+    if len(pending_indexes) > 1 or len(approved_indexes) > 1:
+        raise RuntimeError(
+            f"{label}: expected one metadata line; found "
+            f"{len(pending_indexes)} pending and {len(approved_indexes)} approved."
+        )
+
+    if pending_indexes:
+        lines[pending_indexes[0]] = approved
+    elif approved_indexes:
+        # Canonicalise an already-finalised line by removing trailing spaces.
+        lines[approved_indexes[0]] = approved
+    else:
+        raise RuntimeError(
+            f"{label}: expected exactly one pending or approved value; found none."
+        )
+
+    return "\n".join(lines) + "\n"
 
 
 def verify_closure_inputs(issue_register: str, closure_decision: str) -> None:
@@ -127,13 +155,13 @@ def prepare_change(repo_root: Path) -> Change:
 
     verify_closure_inputs(issue_register, closure_decision)
 
-    after = replace_exact_once(
+    after = replace_metadata_line(
         a42,
         PENDING_STATUS,
         APPROVED_STATUS,
         "A4.2 status",
     )
-    after = replace_exact_once(
+    after = replace_metadata_line(
         after,
         PENDING_EFFECTIVE_CONDITION,
         SATISFIED_EFFECTIVE_CONDITION,
