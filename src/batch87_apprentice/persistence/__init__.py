@@ -4,14 +4,12 @@ from .config import DatabaseConfig, resolve_database_config
 from .integrity import IntegrityInspector, IntegrityReport
 from .migrations import MigrationRunner
 from .service import PersistenceService
-from .transactions import PersistenceKernel
 
 __all__ = [
     "DatabaseConfig",
     "IntegrityInspector",
     "IntegrityReport",
     "MigrationRunner",
-    "PersistenceKernel",
     "PersistenceService",
     "resolve_database_config",
 ]

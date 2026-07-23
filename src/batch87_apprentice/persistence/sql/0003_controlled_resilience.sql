@@ -53,6 +53,13 @@ BEGIN
     SELECT RAISE(ABORT, 'invalid reference anchor lifecycle transition');
 END;
 
+CREATE TRIGGER governed_reference_anchor_ownerless_claim
+BEFORE UPDATE OF lifecycle_state ON governed_reference_anchors
+WHEN OLD.lifecycle_state <> 'claimed' AND NEW.lifecycle_state = 'claimed'
+BEGIN
+    SELECT RAISE(ABORT, 'claimed anchor requires a transactional operational owner');
+END;
+
 CREATE TRIGGER governed_reference_anchor_no_delete
 BEFORE DELETE ON governed_reference_anchors
 BEGIN
@@ -229,6 +236,46 @@ WHEN EXISTS (
 )
 BEGIN
     SELECT RAISE(ABORT, 'controlled evidence link would weaken isolation');
+END;
+
+CREATE TRIGGER controlled_resilience_mandatory_link_no_update
+BEFORE UPDATE OF record_id, evidence_id, relationship ON record_evidence_links
+WHEN EXISTS (
+    SELECT 1
+    FROM controlled_resilience_evidence
+    WHERE (
+        record_id = OLD.record_id
+        AND raw_prompt_evidence_id = OLD.evidence_id
+        AND OLD.relationship = 'evaluated_against'
+    )
+    OR (
+        record_id = OLD.record_id
+        AND raw_output_evidence_id = OLD.evidence_id
+        AND OLD.relationship = 'produced_as'
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'mandatory controlled evidence link is immutable');
+END;
+
+CREATE TRIGGER controlled_resilience_mandatory_link_no_delete
+BEFORE DELETE ON record_evidence_links
+WHEN EXISTS (
+    SELECT 1
+    FROM controlled_resilience_evidence
+    WHERE (
+        record_id = OLD.record_id
+        AND raw_prompt_evidence_id = OLD.evidence_id
+        AND OLD.relationship = 'evaluated_against'
+    )
+    OR (
+        record_id = OLD.record_id
+        AND raw_output_evidence_id = OLD.evidence_id
+        AND OLD.relationship = 'produced_as'
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'mandatory controlled evidence link cannot be deleted');
 END;
 
 CREATE TRIGGER controlled_resilience_payload_immutable

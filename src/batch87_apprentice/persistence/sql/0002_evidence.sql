@@ -82,6 +82,23 @@ ON record_evidence_links(record_id);
 CREATE INDEX record_evidence_links_evidence
 ON record_evidence_links(evidence_id);
 
+CREATE TRIGGER evidence_initial_integrity_guard
+BEFORE INSERT ON evidence_items
+WHEN (
+    NEW.storage_kind = 'inline_text'
+    AND NEW.integrity_status <> 'valid'
+)
+OR (
+    NEW.storage_kind <> 'inline_text'
+    AND NEW.integrity_status <> 'unavailable'
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'metadata-only non-inline evidence cannot claim verified integrity'
+    );
+END;
+
 CREATE TRIGGER evidence_inline_requires_inline_storage
 BEFORE INSERT ON evidence_inline_text
 WHEN (

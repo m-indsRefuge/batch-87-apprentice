@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+import batch87_apprentice.persistence as persistence
 from batch87_apprentice.common.canonical_json import canonical_json_text
 from batch87_apprentice.common.errors import ConflictError, ValidationError
 from batch87_apprentice.common.hashing import sha256_canonical_json
@@ -26,6 +27,7 @@ from batch87_apprentice.persistence.migrations import (
     default_migrations_path,
 )
 from batch87_apprentice.persistence.service import PersistenceService
+from tests.support.sql_probe import SqlProbe
 
 NOW = "2026-07-23T10:11:12.123456Z"
 
@@ -170,7 +172,7 @@ def test_default_migrations_apply_repeatedly_with_required_schema(
         "0003_controlled_resilience.sql",
     ]
     assert first == second
-    tables = PersistenceService(config).kernel.read(
+    tables = SqlProbe(config).read(
         lambda connection: connection.execute(
             """
             SELECT name FROM sqlite_master
@@ -189,6 +191,15 @@ def test_default_migrations_apply_repeatedly_with_required_schema(
         "governed_reference_anchors",
         "controlled_resilience_evidence",
     } <= table_names
+
+
+def test_production_service_exposes_no_supported_raw_write_boundary(
+    service: PersistenceService,
+) -> None:
+    assert "PersistenceKernel" not in persistence.__all__
+    assert not hasattr(persistence, "PersistenceKernel")
+    assert not hasattr(service, "kernel")
+    assert not hasattr(service, "write")
 
 
 def test_runtime_entity_scope_and_record_repositories(
@@ -278,6 +289,59 @@ def test_inline_evidence_preserves_exact_hash_and_orphan_links_fail(
         )
 
 
+def test_noninline_metadata_cannot_claim_verified_integrity(
+    service: PersistenceService,
+) -> None:
+    with pytest.raises(ValidationError, match="metadata-only non-inline"):
+        EvidenceItem(
+            evidence_id=uid(22),
+            evidence_kind="document",
+            storage_kind="local_file",
+            captured_at=NOW,
+            integrity_status="valid",
+            redaction_status="none",
+            sensitivity_class="internal",
+            privacy_class="none",
+            storage_location="fixtures/document.txt",
+            byte_length=12,
+            content_hash="0" * 64,
+        )
+
+    with pytest.raises(ConflictError):
+        SqlProbe(service.config).write(
+            lambda connection: connection.execute(
+                """
+                INSERT INTO evidence_items (
+                    evidence_id, evidence_kind, storage_kind, storage_location,
+                    byte_length, content_hash, captured_at, integrity_status,
+                    redaction_status, sensitivity_class, privacy_class
+                ) VALUES (
+                    ?, 'document', 'local_file', 'fixtures/document.txt',
+                    12, ?, ?, 'valid', 'none', 'internal', 'none'
+                )
+                """,
+                (uid(22), "0" * 64, NOW),
+            )
+        )
+
+    item = EvidenceItem(
+        evidence_id=uid(23),
+        evidence_kind="document",
+        storage_kind="local_file",
+        captured_at=NOW,
+        integrity_status="unavailable",
+        redaction_status="none",
+        sensitivity_class="internal",
+        privacy_class="none",
+        storage_location="fixtures/document.txt",
+        byte_length=12,
+        content_hash="0" * 64,
+    )
+    service.evidence.create(item)
+
+    assert service.evidence.get(item.evidence_id)["integrity_status"] == "unavailable"
+
+
 def test_anchor_registration_hash_kind_stability_and_scope_fk(
     service: PersistenceService,
 ) -> None:
@@ -296,7 +360,7 @@ def test_anchor_registration_hash_kind_stability_and_scope_fk(
     assert digest == sha256_canonical_json(anchor.hash_material())
     assert service.reference_anchors.get(anchor.reference_id)["content_hash"] == digest
     with pytest.raises(ConflictError):
-        service.kernel.write(
+        SqlProbe(service.config).write(
             lambda connection: connection.execute(
                 """
                 UPDATE governed_reference_anchors
@@ -345,6 +409,78 @@ def test_anchor_registration_hash_kind_stability_and_scope_fk(
         )
 
 
+def test_i1_ownerless_claim_is_rejected_without_weakening_other_transitions(
+    service: PersistenceService,
+) -> None:
+    scope = project_scope()
+    service.scopes.create(scope)
+    anchors = tuple(
+        ReferenceAnchor(
+            reference_id=uid(number),
+            reference_kind="context_manifest",
+            project_scope_id=scope.scope_id,
+            created_at=NOW,
+            provenance_json=canonical_json_text({"fixture": number}),
+        )
+        for number in (33, 34)
+    )
+    for anchor in anchors:
+        service.reference_anchors.register(anchor)
+    probe = SqlProbe(service.config)
+
+    with pytest.raises(ConflictError):
+        probe.write(
+            lambda connection: connection.execute(
+                """
+                UPDATE governed_reference_anchors
+                SET lifecycle_state = 'claimed'
+                WHERE reference_id = ?
+                """,
+                (anchors[0].reference_id,),
+            )
+        )
+    assert (
+        service.reference_anchors.get(anchors[0].reference_id)["lifecycle_state"]
+        == "registered"
+    )
+
+    probe.write(
+        lambda connection: connection.execute(
+            """
+            UPDATE governed_reference_anchors
+            SET lifecycle_state = 'invalid'
+            WHERE reference_id = ?
+            """,
+            (anchors[0].reference_id,),
+        )
+    )
+    probe.write(
+        lambda connection: connection.execute(
+            """
+            UPDATE governed_reference_anchors
+            SET lifecycle_state = 'retired'
+            WHERE reference_id = ?
+            """,
+            (anchors[0].reference_id,),
+        )
+    )
+    probe.write(
+        lambda connection: connection.execute(
+            """
+            UPDATE governed_reference_anchors
+            SET lifecycle_state = 'retired'
+            WHERE reference_id = ?
+            """,
+            (anchors[1].reference_id,),
+        )
+    )
+
+    assert {
+        service.reference_anchors.get(anchor.reference_id)["lifecycle_state"]
+        for anchor in anchors
+    } == {"retired"}
+
+
 def test_valid_controlled_resilience_bundle_is_atomic_and_incomplete(
     service: PersistenceService,
 ) -> None:
@@ -366,7 +502,12 @@ def test_valid_controlled_resilience_bundle_is_atomic_and_incomplete(
     assert stored["completion_state"] == "incomplete"
     assert stored["ordinary_memory_eligibility"] == "prohibited"
     assert stored["identity_eligibility"] == "prohibited"
-    counts = service.kernel.read(
+    for item in evidence:
+        stored_evidence = service.evidence.get(item.evidence_id)
+        assert stored_evidence["storage_kind"] == "inline_text"
+        assert stored_evidence["integrity_status"] == "valid"
+        assert stored_evidence["content_hash"] == item.content_hash
+    counts = SqlProbe(service.config).read(
         lambda connection: tuple(
             connection.execute(
                 """
@@ -379,6 +520,97 @@ def test_valid_controlled_resilience_bundle_is_atomic_and_incomplete(
         )
     )
     assert counts == (4, 2, 2)
+
+
+def test_mandatory_controlled_links_are_immutable_but_ordinary_links_are_governable(
+    service: PersistenceService,
+) -> None:
+    scope = project_scope()
+    service.scopes.create(scope)
+    envelope, payload, anchors, evidence = controlled_components(
+        scope_id=scope.scope_id,
+        base=150,
+    )
+    service.controlled_resilience.create(
+        envelope,
+        payload,
+        anchors=anchors,
+        evidence_items=evidence,
+    )
+    probe = SqlProbe(service.config)
+
+    with pytest.raises(ConflictError):
+        probe.write(
+            lambda connection: connection.execute(
+                """
+                UPDATE record_evidence_links
+                SET relationship = 'does_not_establish'
+                WHERE record_id = ? AND evidence_id = ?
+                  AND relationship = 'evaluated_against'
+                """,
+                (envelope.record_id, payload.raw_prompt_evidence_id),
+            )
+        )
+    with pytest.raises(ConflictError):
+        probe.write(
+            lambda connection: connection.execute(
+                """
+                DELETE FROM record_evidence_links
+                WHERE record_id = ? AND evidence_id = ?
+                  AND relationship = 'produced_as'
+                """,
+                (envelope.record_id, payload.raw_output_evidence_id),
+            )
+        )
+
+    ordinary = ordinary_record(160, scope.scope_id)
+    ordinary_evidence = EvidenceItem.inline_text(
+        evidence_id=uid(161),
+        evidence_kind="document",
+        content="ordinary evidence",
+        captured_at=NOW,
+        sensitivity_class="internal",
+    )
+    service.records.create(ordinary)
+    service.evidence.create(ordinary_evidence)
+    service.evidence.link(
+        EvidenceLink(
+            record_id=ordinary.record_id,
+            evidence_id=ordinary_evidence.evidence_id,
+            relationship="supports",
+        )
+    )
+
+    def govern_ordinary_link(connection) -> None:
+        connection.execute(
+            """
+            UPDATE record_evidence_links
+            SET relationship = 'contextualises'
+            WHERE record_id = ? AND evidence_id = ?
+              AND relationship = 'supports'
+            """,
+            (ordinary.record_id, ordinary_evidence.evidence_id),
+        )
+        connection.execute(
+            """
+            DELETE FROM record_evidence_links
+            WHERE record_id = ? AND evidence_id = ?
+              AND relationship = 'contextualises'
+            """,
+            (ordinary.record_id, ordinary_evidence.evidence_id),
+        )
+
+    probe.write(govern_ordinary_link)
+    remaining = probe.read(
+        lambda connection: connection.execute(
+            """
+            SELECT COUNT(*) FROM record_evidence_links
+            WHERE record_id = ? AND evidence_id = ?
+            """,
+            (ordinary.record_id, ordinary_evidence.evidence_id),
+        ).fetchone()[0]
+    )
+    assert remaining == 0
 
 
 @pytest.mark.parametrize("missing_index", range(4))
@@ -402,7 +634,7 @@ def test_missing_typed_anchor_rolls_back_every_supplied_component(
             evidence_items=evidence,
         )
 
-    counts = service.kernel.read(
+    counts = SqlProbe(service.config).read(
         lambda connection: tuple(
             connection.execute(
                 """
@@ -439,7 +671,7 @@ def test_missing_raw_evidence_rolls_back_anchors_and_record(
             evidence_items=supplied,
         )
 
-    counts = service.kernel.read(
+    counts = SqlProbe(service.config).read(
         lambda connection: tuple(
             connection.execute(
                 """
@@ -481,7 +713,7 @@ def test_cross_scope_anchors_are_rejected_atomically(
             evidence_items=evidence,
         )
 
-    assert service.kernel.read(
+    assert SqlProbe(service.config).read(
         lambda connection: connection.execute(
             "SELECT COUNT(*) FROM records"
         ).fetchone()[0]
@@ -507,7 +739,7 @@ def test_orphan_recovery_record_is_rejected_atomically(
             evidence_items=evidence,
         )
 
-    counts = service.kernel.read(
+    counts = SqlProbe(service.config).read(
         lambda connection: tuple(
             connection.execute(
                 """
@@ -575,7 +807,7 @@ def test_classification_kind_and_pass_weakening_are_rejected(
         """,
     ):
         with pytest.raises(ConflictError):
-            service.kernel.write(
+            SqlProbe(service.config).write(
                 lambda connection, sql=statement: connection.execute(
                     sql,
                     (envelope.record_id,),
@@ -644,7 +876,7 @@ def test_prelinked_evidence_cannot_be_reclassified_as_raw_controlled(
             anchors=anchors,
         )
 
-    anchor_count = service.kernel.read(
+    anchor_count = SqlProbe(service.config).read(
         lambda connection: connection.execute(
             "SELECT COUNT(*) FROM governed_reference_anchors"
         ).fetchone()[0]
@@ -661,7 +893,7 @@ def test_anchor_existence_never_masquerades_as_execution_or_completion(
     for anchor in anchors:
         service.reference_anchors.register(anchor)
 
-    anchor_states, payload_count = service.kernel.read(
+    anchor_states, payload_count = SqlProbe(service.config).read(
         lambda connection: (
             {
                 row[0]
@@ -686,26 +918,6 @@ def test_later_claim_semantics_are_additive_without_rewriting_i1(
     migration_directory.mkdir()
     for source in default_migrations_path().glob("*.sql"):
         (migration_directory / source.name).write_bytes(source.read_bytes())
-    (migration_directory / "0004_later_claim_probe.sql").write_text(
-        """
-        CREATE TABLE later_claim_probe (
-            reference_id TEXT NOT NULL,
-            reference_kind TEXT NOT NULL,
-            project_scope_id TEXT NOT NULL,
-            PRIMARY KEY (reference_id, reference_kind),
-            FOREIGN KEY (
-                reference_id, reference_kind, project_scope_id
-            )
-                REFERENCES governed_reference_anchors (
-                    reference_id, reference_kind, project_scope_id
-                ) ON DELETE RESTRICT,
-            FOREIGN KEY (project_scope_id)
-                REFERENCES scopes(scope_id) ON DELETE RESTRICT
-        );
-        """,
-        encoding="utf-8",
-        newline="\n",
-    )
     config = DatabaseConfig(tmp_path / "later-claim.sqlite3")
     runner = MigrationRunner(config, migration_directory)
     discovered_before = runner.discover()
@@ -723,22 +935,108 @@ def test_later_claim_semantics_are_additive_without_rewriting_i1(
         provenance_json=canonical_json_text({"operation_executed": False}),
     )
     service.reference_anchors.register(anchor)
+    probe = SqlProbe(config)
 
     with pytest.raises(ConflictError):
-        service.kernel.write(
+        probe.write(
             lambda connection: connection.execute(
                 """
-                INSERT INTO later_claim_probe (
-                    reference_id, reference_kind, project_scope_id
-                ) VALUES (?, ?, ?)
+                UPDATE governed_reference_anchors
+                SET lifecycle_state = 'claimed'
+                WHERE reference_id = ? AND reference_kind = ?
                 """,
-                (
-                    anchor.reference_id,
-                    anchor.reference_kind,
-                    other_scope.scope_id,
-                ),
+                (anchor.reference_id, anchor.reference_kind),
             )
         )
+    assert service.reference_anchors.get(anchor.reference_id)["lifecycle_state"] == (
+        "registered"
+    )
+
+    (migration_directory / "0004_later_claim_probe.sql").write_text(
+        """
+        CREATE TABLE later_claim_probe (
+            reference_id TEXT NOT NULL,
+            reference_kind TEXT NOT NULL,
+            project_scope_id TEXT NOT NULL,
+            PRIMARY KEY (reference_id, reference_kind),
+            FOREIGN KEY (
+                reference_id, reference_kind, project_scope_id
+            )
+                REFERENCES governed_reference_anchors (
+                    reference_id, reference_kind, project_scope_id
+                ) ON DELETE RESTRICT,
+            FOREIGN KEY (project_scope_id)
+                REFERENCES scopes(scope_id) ON DELETE RESTRICT
+        );
+
+        DROP TRIGGER governed_reference_anchor_ownerless_claim;
+
+        CREATE TRIGGER governed_reference_anchor_claim_requires_owner
+        BEFORE UPDATE OF lifecycle_state ON governed_reference_anchors
+        WHEN OLD.lifecycle_state <> 'claimed'
+          AND NEW.lifecycle_state = 'claimed'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM later_claim_probe AS owner
+              WHERE owner.reference_id = NEW.reference_id
+                AND owner.reference_kind = NEW.reference_kind
+                AND owner.project_scope_id = NEW.project_scope_id
+          )
+        BEGIN
+            SELECT RAISE(
+                ABORT,
+                'claimed anchor requires a matching operational owner'
+            );
+        END;
+        """,
+        encoding="utf-8",
+        newline="\n",
+    )
+    assert runner.discover()[:3] == discovered_before
+    runner.apply_all()
+
+    def invalid_owner_then_claim(connection) -> None:
+        connection.execute(
+            """
+            INSERT INTO later_claim_probe (
+                reference_id, reference_kind, project_scope_id
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                anchor.reference_id,
+                anchor.reference_kind,
+                other_scope.scope_id,
+            ),
+        )
+        connection.execute(
+            """
+            UPDATE governed_reference_anchors
+            SET lifecycle_state = 'claimed'
+            WHERE reference_id = ? AND reference_kind = ?
+            """,
+            (anchor.reference_id, anchor.reference_kind),
+        )
+
+    with pytest.raises(ConflictError):
+        probe.write(invalid_owner_then_claim)
+    assert service.reference_anchors.get(anchor.reference_id)["lifecycle_state"] == (
+        "registered"
+    )
+
+    with pytest.raises(ConflictError):
+        probe.write(
+            lambda connection: connection.execute(
+                """
+                UPDATE governed_reference_anchors
+                SET lifecycle_state = 'claimed'
+                WHERE reference_id = ? AND reference_kind = ?
+                """,
+                (anchor.reference_id, anchor.reference_kind),
+            )
+        )
+    assert service.reference_anchors.get(anchor.reference_id)["lifecycle_state"] == (
+        "registered"
+    )
 
     def claim_probe(connection) -> None:
         connection.execute(
@@ -762,7 +1060,7 @@ def test_later_claim_semantics_are_additive_without_rewriting_i1(
             (anchor.reference_id, anchor.reference_kind),
         )
 
-    service.kernel.write(claim_probe)
+    probe.write(claim_probe)
 
     assert service.reference_anchors.get(anchor.reference_id)["lifecycle_state"] == "claimed"
     assert runner.discover()[:3] == discovered_before[:3]

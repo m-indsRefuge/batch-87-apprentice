@@ -4,13 +4,13 @@ from pathlib import Path
 
 from batch87_apprentice.common.canonical_json import canonical_json_text
 from batch87_apprentice.persistence.config import DatabaseConfig
-from batch87_apprentice.persistence.contracts import ReferenceAnchor
-from batch87_apprentice.persistence.integrity import IntegrityInspector
+from batch87_apprentice.persistence.contracts import EvidenceItem, ReferenceAnchor
 from batch87_apprentice.persistence.migrations import (
     MigrationRunner,
     default_migrations_path,
 )
 from batch87_apprentice.persistence.service import PersistenceService
+from tests.support.sql_probe import SqlProbe
 
 from .test_i1_persistence_kernel import (
     NOW,
@@ -56,6 +56,66 @@ def test_unclaimed_anchor_is_visible_without_implying_failure(
     assert report.ok
     assert report.warning_count == 1
     assert report.findings[0].code == "anchor_unclaimed"
+
+
+def test_ownerless_claimed_anchor_is_an_integrity_error(tmp_path: Path) -> None:
+    service = PersistenceService.initialize(
+        DatabaseConfig(tmp_path / "ownerless-claimed.sqlite3")
+    )
+    scope = project_scope()
+    service.scopes.create(scope)
+    anchor = ReferenceAnchor(
+        reference_id=uid(11),
+        reference_kind="context_manifest",
+        project_scope_id=scope.scope_id,
+        created_at=NOW,
+        provenance_json=canonical_json_text({"operation_executed": False}),
+    )
+    service.reference_anchors.register(anchor)
+    SqlProbe(service.config).corrupt_after_dropping_triggers(
+        ("governed_reference_anchor_ownerless_claim",),
+        lambda connection: connection.execute(
+            """
+            UPDATE governed_reference_anchors
+            SET lifecycle_state = 'claimed'
+            WHERE reference_id = ?
+            """,
+            (anchor.reference_id,),
+        ),
+    )
+
+    report = service.integrity.inspect()
+
+    assert not report.ok
+    assert "anchor_ownerless_claimed" in {
+        finding.code for finding in report.findings
+    }
+
+
+def test_noninline_metadata_is_audited_as_unavailable(tmp_path: Path) -> None:
+    service = PersistenceService.initialize(
+        DatabaseConfig(tmp_path / "noninline-unavailable.sqlite3")
+    )
+    item = EvidenceItem(
+        evidence_id=uid(12),
+        evidence_kind="document",
+        storage_kind="repository_reference",
+        captured_at=NOW,
+        integrity_status="unavailable",
+        redaction_status="none",
+        sensitivity_class="internal",
+        privacy_class="none",
+        storage_location="docs/governance.md",
+        byte_length=87,
+        content_hash="0" * 64,
+    )
+    service.evidence.create(item)
+
+    report = service.integrity.inspect()
+
+    assert report.ok
+    assert report.warning_count == 1
+    assert report.findings[0].code == "evidence_integrity_not_valid"
 
 
 def test_integrity_inspector_exposes_hash_and_lifecycle_mismatches(
@@ -106,7 +166,7 @@ def test_integrity_inspector_exposes_hash_and_lifecycle_mismatches(
             ),
         )
 
-    service.kernel.write(introduce_visible_mismatches)
+    SqlProbe(service.config).write(introduce_visible_mismatches)
 
     report = service.integrity.inspect()
     codes = {finding.code for finding in report.findings}
@@ -138,7 +198,7 @@ def test_controlled_anchor_integrity_failure_remains_auditable(
         anchors=anchors,
         evidence_items=evidence,
     )
-    service.kernel.write(
+    SqlProbe(service.config).write(
         lambda connection: connection.execute(
             """
             UPDATE governed_reference_anchors
@@ -157,6 +217,61 @@ def test_controlled_anchor_integrity_failure_remains_auditable(
     assert "controlled_anchor_invalid" in codes
 
 
+def test_controlled_link_corruption_is_reported_by_role(tmp_path: Path) -> None:
+    service = PersistenceService.initialize(
+        DatabaseConfig(tmp_path / "controlled-link-corruption.sqlite3")
+    )
+    scope = project_scope()
+    service.scopes.create(scope)
+    envelope, payload, anchors, evidence = controlled_components(
+        scope_id=scope.scope_id,
+        base=130,
+    )
+    service.controlled_resilience.create(
+        envelope,
+        payload,
+        anchors=anchors,
+        evidence_items=evidence,
+    )
+
+    def corrupt_links(connection) -> None:
+        connection.execute(
+            """
+            DELETE FROM record_evidence_links
+            WHERE record_id = ? AND evidence_id = ?
+              AND relationship = 'evaluated_against'
+            """,
+            (envelope.record_id, payload.raw_prompt_evidence_id),
+        )
+        connection.execute(
+            """
+            UPDATE record_evidence_links
+            SET relationship = 'supports'
+            WHERE record_id = ? AND evidence_id = ?
+              AND relationship = 'produced_as'
+            """,
+            (envelope.record_id, payload.raw_output_evidence_id),
+        )
+
+    SqlProbe(service.config).corrupt_after_dropping_triggers(
+        (
+            "controlled_resilience_mandatory_link_no_delete",
+            "controlled_resilience_mandatory_link_no_update",
+        ),
+        corrupt_links,
+    )
+
+    report = service.integrity.inspect()
+    codes = {finding.code for finding in report.findings}
+
+    assert not report.ok
+    assert {
+        "controlled_prompt_link_missing",
+        "controlled_output_link_missing",
+        "controlled_output_link_invalid",
+    } <= codes
+
+
 def test_migration_tampering_is_reported_read_only(tmp_path: Path) -> None:
     migration_directory = tmp_path / "migrations"
     migration_directory.mkdir()
@@ -168,10 +283,7 @@ def test_migration_tampering_is_reported_read_only(tmp_path: Path) -> None:
     migration = migration_directory / "0001_system_entities_records.sql"
     migration.write_bytes(migration.read_bytes() + b"\n")
 
-    report = IntegrityInspector(
-        PersistenceService(config).kernel,
-        migration_runner=runner,
-    ).inspect()
+    report = SqlProbe(config).inspect(migration_runner=runner)
 
     assert not report.ok
     assert report.migration_count == 0

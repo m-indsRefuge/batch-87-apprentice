@@ -24,15 +24,15 @@ class PersistenceService:
 
     def __init__(self, config: DatabaseConfig) -> None:
         self.config = config
-        self.kernel = PersistenceKernel(config)
-        self.runtime_instances = RuntimeRepository(self.kernel)
-        self.entities = EntityRepository(self.kernel)
-        self.scopes = ScopeRepository(self.kernel)
-        self.records = RecordRepository(self.kernel)
-        self.evidence = EvidenceRepository(self.kernel)
-        self.reference_anchors = ReferenceAnchorRepository(self.kernel)
-        self.controlled_resilience = ControlledResilienceRepository(self.kernel)
-        self.integrity = IntegrityInspector(self.kernel)
+        kernel = PersistenceKernel(config)
+        self.runtime_instances = RuntimeRepository(kernel)
+        self.entities = EntityRepository(kernel)
+        self.scopes = ScopeRepository(kernel)
+        self.records = RecordRepository(kernel)
+        self.evidence = EvidenceRepository(kernel)
+        self.reference_anchors = ReferenceAnchorRepository(kernel)
+        self.controlled_resilience = ControlledResilienceRepository(kernel)
+        self.integrity = IntegrityInspector(kernel)
 
     @classmethod
     def initialize(

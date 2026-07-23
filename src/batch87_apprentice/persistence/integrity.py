@@ -302,6 +302,15 @@ class IntegrityInspector:
                     object_id=reference_id,
                     detail="typed identity exists but no later operational owner has claimed it",
                 )
+            elif row["lifecycle_state"] == "claimed":
+                _finding(
+                    findings,
+                    severity="error",
+                    code="anchor_ownerless_claimed",
+                    table="governed_reference_anchors",
+                    object_id=reference_id,
+                    detail="I1 has no operational owner table that can justify claimed state",
+                )
             elif row["lifecycle_state"] == "invalid":
                 _finding(
                     findings,
@@ -456,7 +465,7 @@ class IntegrityInspector:
                     anchor is None
                     or anchor["reference_kind"] != expected_kind
                     or anchor["project_scope_id"] != row["project_scope_id"]
-                    or anchor["lifecycle_state"] not in {"registered", "claimed"}
+                    or anchor["lifecycle_state"] != "registered"
                     or anchor["integrity_status"] != "valid"
                 ):
                     _finding(
@@ -525,35 +534,88 @@ class IntegrityInspector:
                         detail=f"{expected_kind} is missing or has weakened integrity",
                     )
 
-            for link in connection.execute(
-                """
-                SELECT record_id, evidence_id, relationship
-                FROM record_evidence_links
-                WHERE evidence_id IN (?, ?)
-                """,
-                (
-                    row["raw_prompt_evidence_id"],
-                    row["raw_output_evidence_id"],
-                ),
+            links = tuple(
+                connection.execute(
+                    """
+                    SELECT record_id, evidence_id, relationship
+                    FROM record_evidence_links
+                    WHERE evidence_id IN (?, ?)
+                    """,
+                    (
+                        row["raw_prompt_evidence_id"],
+                        row["raw_output_evidence_id"],
+                    ),
+                )
+            )
+            prompt_links = tuple(
+                link
+                for link in links
+                if link["record_id"] == record_id
+                and link["evidence_id"] == row["raw_prompt_evidence_id"]
+                and link["relationship"] == "evaluated_against"
+            )
+            output_links = tuple(
+                link
+                for link in links
+                if link["record_id"] == record_id
+                and link["evidence_id"] == row["raw_output_evidence_id"]
+                and link["relationship"] == "produced_as"
+            )
+            for kind, mandatory_links in (
+                ("prompt", prompt_links),
+                ("output", output_links),
             ):
-                valid_prompt = (
-                    link["evidence_id"] == row["raw_prompt_evidence_id"]
-                    and link["record_id"] == record_id
-                    and link["relationship"]
-                    in {"evaluated_against", "does_not_establish"}
-                )
-                valid_output = (
-                    link["evidence_id"] == row["raw_output_evidence_id"]
-                    and link["record_id"] == record_id
-                    and link["relationship"]
-                    in {"produced_as", "does_not_establish"}
-                )
-                if not (valid_prompt or valid_output):
+                if not mandatory_links:
                     _finding(
                         findings,
                         severity="error",
-                        code="controlled_evidence_link_contamination",
+                        code=f"controlled_{kind}_link_missing",
                         table="record_evidence_links",
                         object_id=record_id,
-                        detail="raw controlled evidence has a non-isolated relationship",
+                        detail=f"mandatory controlled {kind} relationship is absent",
                     )
+                elif len(mandatory_links) > 1:
+                    _finding(
+                        findings,
+                        severity="error",
+                        code=f"controlled_{kind}_link_duplicate",
+                        table="record_evidence_links",
+                        object_id=record_id,
+                        detail=f"mandatory controlled {kind} relationship is duplicated",
+                    )
+
+            for link in links:
+                if link["evidence_id"] == row["raw_prompt_evidence_id"]:
+                    if link["record_id"] != record_id:
+                        code = "controlled_evidence_link_contamination"
+                        detail = "raw controlled prompt is linked to another record"
+                    elif link["relationship"] not in {
+                        "evaluated_against",
+                        "does_not_establish",
+                    }:
+                        code = "controlled_prompt_link_invalid"
+                        detail = "raw controlled prompt relationship is invalid"
+                    else:
+                        continue
+                elif link["evidence_id"] == row["raw_output_evidence_id"]:
+                    if link["record_id"] != record_id:
+                        code = "controlled_evidence_link_contamination"
+                        detail = "raw controlled output is linked to another record"
+                    elif link["relationship"] not in {
+                        "produced_as",
+                        "does_not_establish",
+                    }:
+                        code = "controlled_output_link_invalid"
+                        detail = "raw controlled output relationship is invalid"
+                    else:
+                        continue
+                else:
+                    continue
+                _finding(
+                    findings,
+                    severity="error",
+                    code=code,
+                    table="record_evidence_links",
+                    object_id=record_id,
+                    detail=detail,
+                )

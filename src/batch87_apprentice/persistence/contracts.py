@@ -531,6 +531,10 @@ class EvidenceItem:
             raise ValidationError("byte_length cannot be negative")
 
         if self.storage_kind == "inline_text":
+            if self.integrity_status != "valid":
+                raise ValidationError(
+                    "verified inline evidence must use integrity_status='valid'"
+                )
             if self.inline_content is None:
                 raise ValidationError("inline_text evidence requires inline_content")
             if self.storage_location is not None:
@@ -546,6 +550,11 @@ class EvidenceItem:
             object.__setattr__(self, "content_hash", derived_hash)
             object.__setattr__(self, "byte_length", len(exact))
         else:
+            if self.integrity_status != "unavailable":
+                raise ValidationError(
+                    "metadata-only non-inline evidence must use "
+                    "integrity_status='unavailable' until exact bytes are verified"
+                )
             if self.inline_content is not None:
                 raise ValidationError("non-inline evidence cannot carry inline_content")
             if self.storage_kind != "generated_record":

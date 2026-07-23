@@ -16,17 +16,21 @@ from .config import DatabaseConfig
 from .connection import open_connection, read_connection
 
 _MIGRATION_NAME = re.compile(r"^(?P<version>[0-9]{4})_(?P<name>[a-z0-9_]+)\.sql$")
-_TRANSACTION_CONTROL = re.compile(
+_SQL_TOKEN = re.compile(
     r"""
-    \b(?:
-        BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?(?:\s+TRANSACTION)?\s*;
-        |COMMIT(?:\s+TRANSACTION)?\s*;
-        |ROLLBACK(?:\s+TRANSACTION)?\s*;
-        |SAVEPOINT\s+\S+\s*;
-        |RELEASE(?:\s+SAVEPOINT)?\s+\S+\s*;
-    )
+    --[^\r\n]*
+    |/\*.*?\*/
+    |'(?:''|[^'])*'
+    |"(?:""|[^"])*"
+    |`(?:``|[^`])*`
+    |\[[^\]]*\]
+    |[A-Za-z_]+
+    |;
     """,
-    re.IGNORECASE | re.VERBOSE,
+    re.DOTALL | re.VERBOSE,
+)
+_TRANSACTION_START = frozenset(
+    {"BEGIN", "COMMIT", "END", "ROLLBACK", "SAVEPOINT", "RELEASE"}
 )
 _LEDGER_SQL = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -70,6 +74,59 @@ def default_migrations_path() -> Path:
     return Path(__file__).resolve().parent / "sql"
 
 
+def _contains_transaction_control(sql: str) -> bool:
+    """Detect top-level transaction statements while allowing trigger bodies."""
+
+    statement_start = True
+    create_statement = False
+    trigger_declaration = False
+    trigger_body = False
+    trigger_case_depth = 0
+    trigger_end_pending = False
+
+    for match in _SQL_TOKEN.finditer(sql):
+        token = match.group(0)
+        if token.startswith(("--", "/*", "'", '"', "`", "[")):
+            continue
+        upper = token.upper()
+
+        if trigger_body:
+            if upper == "CASE":
+                trigger_case_depth += 1
+            elif upper == "END":
+                if trigger_case_depth:
+                    trigger_case_depth -= 1
+                else:
+                    trigger_end_pending = True
+            elif token == ";" and trigger_end_pending:
+                trigger_body = False
+                trigger_end_pending = False
+                trigger_declaration = False
+                create_statement = False
+                statement_start = True
+            continue
+
+        if token == ";":
+            statement_start = True
+            create_statement = False
+            trigger_declaration = False
+            continue
+
+        if statement_start:
+            if upper in _TRANSACTION_START:
+                return True
+            statement_start = False
+            create_statement = upper == "CREATE"
+            continue
+
+        if create_statement and upper == "TRIGGER":
+            trigger_declaration = True
+        elif trigger_declaration and upper == "BEGIN":
+            trigger_body = True
+
+    return False
+
+
 class MigrationRunner:
     """Validate and apply an ordered migration set."""
 
@@ -100,7 +157,7 @@ class MigrationRunner:
                 sql = exact_bytes.decode("utf-8")
             except UnicodeDecodeError as exc:
                 raise MigrationError(f"migration is not UTF-8: {path.name}") from exc
-            if _TRANSACTION_CONTROL.search(sql):
+            if _contains_transaction_control(sql):
                 raise MigrationError(
                     f"migration contains transaction control: {path.name}"
                 )
