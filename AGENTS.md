@@ -13,7 +13,35 @@ The D0 closure establishes that the architecture is coherent, bounded,
 implementable, and testable. It does not establish model behaviour, memory
 efficacy, developmental compounding, or base-model suitability.
 
-B87-I1 — Persistence Kernel is the currently authorised implementation slice.
+B87-I1 — Persistence Kernel is the first implementation slice accepted by the
+architecture. It is not an active Codex implementation release until Nolan
+issues the exact operator instruction required by the ratified programme
+contract.
+
+The B87-I1 Controlled-Resilience Reference Boundary Decision is ratified and
+accepted. It resolves the A4.2 foreign-key and phase-ownership ambiguity by
+permitting typed persistence-only reference anchors without implementing later-
+phase experiment execution, context assembly, model invocation, recovery, or
+formal evaluation completion.
+
+The governing decision is:
+
+```text
+docs/implementation/B87-I1-CONTROLLED-RESILIENCE-REFERENCE-BOUNDARY-DECISION.md
+```
+
+The current active implementation release remains:
+
+```text
+NONE
+```
+
+B87-I1 may begin only after Nolan separately issues:
+
+```text
+AUTHORIZE B87-I1
+```
+
 B87-I2 through B87-I5 require their own accepted contracts and explicit phase
 release before implementation begins.
 
@@ -113,6 +141,11 @@ not create policy or authority.
 Where a general A2 or A3 rule would permit broader treatment of Controlled
 Governance Resilience evidence, D0-A4.2 supplies the narrower rule.
 
+Where A4.2 requires later-phase operational identifiers to exist before their
+owning tables are active, the ratified B87-I1 reference-boundary decision
+supplies the narrower typed-anchor rule. Anchor existence creates referential
+identity only and never proves execution, completion, validity, or success.
+
 ## Engineering expectations
 
 - Prefer deterministic, inspectable components.
@@ -132,6 +165,8 @@ Governance Resilience evidence, D0-A4.2 supplies the narrower rule.
 - Keep future architecture compatible without prematurely activating it.
 - The Apprentice production runtime must not import or depend upon experimental
   laboratory implementations.
+- No placeholder or anchor row may masquerade as an executed experiment,
+  assembled context, model invocation, recovery run, or completed evaluation.
 
 ## Codex execution protocol
 
