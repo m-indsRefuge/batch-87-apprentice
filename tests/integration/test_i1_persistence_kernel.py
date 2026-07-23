@@ -296,6 +296,24 @@ def test_anchor_registration_hash_kind_stability_and_scope_fk(
     assert digest == sha256_canonical_json(anchor.hash_material())
     assert service.reference_anchors.get(anchor.reference_id)["content_hash"] == digest
     with pytest.raises(ConflictError):
+        service.kernel.write(
+            lambda connection: connection.execute(
+                """
+                UPDATE governed_reference_anchors
+                SET provenance_json = ?
+                WHERE reference_id = ?
+                """,
+                (
+                    canonical_json_text({"source": "rewritten"}),
+                    anchor.reference_id,
+                ),
+            )
+        )
+    assert (
+        service.reference_anchors.get(anchor.reference_id)["provenance_json"]
+        == anchor.provenance_json
+    )
+    with pytest.raises(ConflictError):
         service.reference_anchors.register(anchor)
     with pytest.raises(ConflictError):
         service.reference_anchors.register(
