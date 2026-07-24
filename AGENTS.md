@@ -13,10 +13,15 @@ The D0 closure establishes that the architecture is coherent, bounded,
 implementable, and testable. It does not establish model behaviour, memory
 efficacy, developmental compounding, or base-model suitability.
 
-B87-I1 — Persistence Kernel is the first implementation slice accepted by the
-architecture. It is not an active Codex implementation release until Nolan
-issues the exact operator instruction required by the ratified programme
-contract.
+B87-I1 - Persistence Kernel is accepted, merged, live-validated,
+post-merge validated, and closed. The accepted implementation commit is
+51307bebd8980a10c36980fae4b1e09dee20a6db; the merge commit is
+dde512942fb40f099749a57258c47a5388cceaa3.
+
+The governing acceptance records are:
+
+    docs/implementation/B87-I1-PERSISTENCE-KERNEL-ACCEPTANCE-DECISION.md
+    docs/implementation/B87-I1-PERSISTENCE-KERNEL-ACCEPTANCE-EVIDENCE.md
 
 The B87-I1 Controlled-Resilience Reference Boundary Decision is ratified and
 accepted. It resolves the A4.2 foreign-key and phase-ownership ambiguity by
@@ -36,14 +41,14 @@ The current active implementation release remains:
 NONE
 ```
 
-B87-I1 may begin only after Nolan separately issues:
+B87-I2 - Governed Task Runtime is the next eligible implementation slice.
 
-```text
-AUTHORIZE B87-I1
-```
+B87-I2 may begin only after Nolan separately issues:
 
-B87-I2 through B87-I5 require their own accepted contracts and explicit phase
-release before implementation begins.
+    AUTHORIZE B87-I2
+
+B87-I3 through B87-I5 require their own accepted contracts and explicit
+phase release before implementation begins.
 
 The Shared Experimental Evidence Core, Program Synthesis and Verification V0,
 and Algorithm Discovery Laboratory V0 are future external laboratory
