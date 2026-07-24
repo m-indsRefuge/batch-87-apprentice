@@ -23,6 +23,8 @@ from batch87_apprentice.protocols.task_contracts import (
 AUTHORITY_RECORD_VERSION = "1.0.0"
 PERMISSION_PROFILE_VERSION = "1.0.0"
 GOVERNANCE_RULE_VERSION = "1.0.0"
+OPERATION_DEFINITION_VERSION = "1.0.0"
+HUMAN_APPROVAL_VERSION = "1.0.0"
 
 AUTHORITY_CLASS_PRECEDENCE = {
     "law_or_external_obligation": 1,
@@ -319,6 +321,182 @@ def active_governance_rules() -> tuple[GovernanceRule, ...]:
 
 
 @dataclass(frozen=True, slots=True)
+class OperationDefinition:
+    """Operator-registered operation classification; task claims cannot define it."""
+
+    name: str
+    action_class: str
+    autonomous: bool
+    registered_by_principal: str
+    registered_at: str
+    description: str
+    schema_version: str = OPERATION_DEFINITION_VERSION
+
+    def __post_init__(self) -> None:
+        if self.schema_version != OPERATION_DEFINITION_VERSION:
+            raise ValidationError("unsupported operation definition version")
+        requested = RequestedOperation(
+            name=self.name,
+            action_class=self.action_class,
+            autonomous=self.autonomous,
+        )
+        if requested.action_class == "ambiguous":
+            raise ValidationError(
+                "registered operation definitions cannot be ambiguous"
+            )
+        _enum(
+            self.registered_by_principal,
+            EXECUTION_PRINCIPALS,
+            "registered_by_principal",
+        )
+        if self.registered_by_principal in {
+            "apprentice",
+            "experimental_harness",
+        }:
+            raise ValidationError(
+                "operation registration requires governed infrastructure"
+            )
+        parse_canonical_utc(self.registered_at, field="registered_at")
+        _text(self.description, "operation definition description")
+
+    def canonical_value(self) -> dict[str, Any]:
+        return {
+            "action_class": self.action_class,
+            "autonomous": self.autonomous,
+            "description": self.description,
+            "name": self.name,
+            "registered_at": self.registered_at,
+            "registered_by_principal": self.registered_by_principal,
+            "schema_version": self.schema_version,
+        }
+
+    @property
+    def canonical_json(self) -> str:
+        return canonical_json_text(self.canonical_value())
+
+    @property
+    def content_hash(self) -> str:
+        return sha256_canonical_json(self.canonical_value())
+
+    @property
+    def requested_operation(self) -> RequestedOperation:
+        return RequestedOperation(
+            name=self.name,
+            action_class=self.action_class,
+            autonomous=self.autonomous,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class HumanApproval:
+    """Explicit, scoped, time-aware human authorisation for one operation."""
+
+    human_approval_id: str
+    requested_operation: str
+    subject_principal: str
+    permissions: tuple[str, ...]
+    project_scope_id: str
+    scope_id: str
+    approved_by_entity_id: str
+    approved_at: str
+    conditions: tuple[str, ...]
+    single_use: bool
+    evidence_ids: tuple[str, ...]
+    provenance_json: str
+    registered_by_principal: str
+    registered_at: str
+    task_id: str | None = None
+    expires_at: str | None = None
+    schema_version: str = HUMAN_APPROVAL_VERSION
+
+    def __post_init__(self) -> None:
+        validate_identifier(
+            self.human_approval_id,
+            field="human_approval_id",
+        )
+        if self.schema_version != HUMAN_APPROVAL_VERSION:
+            raise ValidationError("unsupported human approval version")
+        RequestedOperation(self.requested_operation, "observe")
+        _enum(
+            self.subject_principal,
+            EXECUTION_PRINCIPALS,
+            "subject_principal",
+        )
+        _strings(self.permissions, "permissions", allow_empty=False)
+        for permission in self.permissions:
+            _enum(permission, AUTHORITY_GRANT_CLASSES, "approval permission")
+        if self.subject_principal == "apprentice" and set(self.permissions) - {
+            "observe",
+            "analyse",
+        }:
+            raise ValidationError(
+                "human approval cannot grant Apprentice Propose or Execute"
+            )
+        validate_identifier(self.project_scope_id, field="project_scope_id")
+        validate_identifier(self.scope_id, field="scope_id")
+        validate_identifier(
+            self.approved_by_entity_id,
+            field="approved_by_entity_id",
+        )
+        if self.task_id is not None:
+            validate_identifier(self.task_id, field="task_id")
+        parse_canonical_utc(self.approved_at, field="approved_at")
+        if self.expires_at is not None:
+            parse_canonical_utc(self.expires_at, field="expires_at")
+            if self.expires_at < self.approved_at:
+                raise ValidationError("expires_at cannot precede approved_at")
+        _strings(self.conditions, "conditions", allow_empty=True)
+        if not isinstance(self.single_use, bool):
+            raise ValidationError("single_use must be boolean")
+        _identifiers(self.evidence_ids, "approval evidence_ids")
+        if not self.evidence_ids:
+            raise ValidationError("human approval requires supporting evidence")
+        _canonical_object(self.provenance_json, "approval provenance_json")
+        _enum(
+            self.registered_by_principal,
+            EXECUTION_PRINCIPALS,
+            "registered_by_principal",
+        )
+        if self.registered_by_principal in {
+            "apprentice",
+            "experimental_harness",
+        }:
+            raise ValidationError(
+                "human approval registration requires governed infrastructure"
+            )
+        parse_canonical_utc(self.registered_at, field="registered_at")
+
+    def canonical_value(self) -> dict[str, Any]:
+        return {
+            "approved_at": self.approved_at,
+            "approved_by_entity_id": self.approved_by_entity_id,
+            "conditions": list(self.conditions),
+            "evidence_ids": list(self.evidence_ids),
+            "expires_at": self.expires_at,
+            "human_approval_id": self.human_approval_id,
+            "permissions": list(self.permissions),
+            "project_scope_id": self.project_scope_id,
+            "provenance": parse_json(self.provenance_json),
+            "registered_at": self.registered_at,
+            "registered_by_principal": self.registered_by_principal,
+            "requested_operation": self.requested_operation,
+            "schema_version": self.schema_version,
+            "scope_id": self.scope_id,
+            "single_use": self.single_use,
+            "subject_principal": self.subject_principal,
+            "task_id": self.task_id,
+        }
+
+    @property
+    def canonical_json(self) -> str:
+        return canonical_json_text(self.canonical_value())
+
+    @property
+    def content_hash(self) -> str:
+        return sha256_canonical_json(self.canonical_value())
+
+
+@dataclass(frozen=True, slots=True)
 class AuthorityRecord:
     """A structured authority input; free-form claims cannot instantiate it."""
 
@@ -501,6 +679,66 @@ class AuthorityAssessment:
 
 
 @dataclass(frozen=True, slots=True)
+class HumanApprovalAssessment:
+    claimed_human_approval_id: str
+    resolved_record_hash: str | None
+    applicable: bool
+    result_code: str
+    selected: bool = False
+    consumed: bool = False
+
+    def __post_init__(self) -> None:
+        validate_identifier(
+            self.claimed_human_approval_id,
+            field="claimed_human_approval_id",
+        )
+        if not isinstance(self.applicable, bool):
+            raise ValidationError("approval applicable must be boolean")
+        if not isinstance(self.selected, bool):
+            raise ValidationError("approval selected must be boolean")
+        if not isinstance(self.consumed, bool):
+            raise ValidationError("approval consumed must be boolean")
+        _text(self.result_code, "approval result_code")
+
+    def canonical_value(self) -> dict[str, Any]:
+        return {
+            "applicable": self.applicable,
+            "claimed_human_approval_id": self.claimed_human_approval_id,
+            "consumed": self.consumed,
+            "resolved_record_hash": self.resolved_record_hash,
+            "selected": self.selected,
+            "result_code": self.result_code,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class DecisionEvidenceAssessment:
+    input_kind: str
+    required_evidence_id: str
+    available: bool
+
+    def __post_init__(self) -> None:
+        _enum(
+            self.input_kind,
+            frozenset({"task", "authority", "approval", "policy"}),
+            "evidence input_kind",
+        )
+        validate_identifier(
+            self.required_evidence_id,
+            field="required_evidence_id",
+        )
+        if not isinstance(self.available, bool):
+            raise ValidationError("evidence availability must be boolean")
+
+    def canonical_value(self) -> dict[str, Any]:
+        return {
+            "available": self.available,
+            "input_kind": self.input_kind,
+            "required_evidence_id": self.required_evidence_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class GovernanceDecision:
     governance_decision_id: str
     transaction_id: str
@@ -511,10 +749,13 @@ class GovernanceDecision:
     requesting_principal: str
     runtime_execution_principal: str
     requested_operation: RequestedOperation
+    operation_definition_hash: str
     permission_profile_id: str
     permission_profile_hash: str
     permission_profile_applicable: bool
     authority_assessments: tuple[AuthorityAssessment, ...]
+    human_approval_assessments: tuple[HumanApprovalAssessment, ...]
+    evidence_assessments: tuple[DecisionEvidenceAssessment, ...]
     precedence_authority_class: str | None
     outcome: str
     reasons: tuple[DecisionReason, ...]
@@ -561,6 +802,8 @@ class GovernanceDecision:
             raise ValidationError(
                 "decision requested_operation must be typed"
             )
+        if len(self.operation_definition_hash) != 64:
+            raise ValidationError("operation_definition_hash must be SHA-256 text")
         if self.precedence_authority_class is not None:
             _enum(
                 self.precedence_authority_class,
@@ -573,6 +816,14 @@ class GovernanceDecision:
         parse_canonical_utc(self.effective_at, field="effective_at")
         parse_canonical_utc(self.decided_at, field="decided_at")
         _identifiers(self.evidence_ids, "decision evidence_ids")
+        if tuple(dict.fromkeys(
+            assessment.required_evidence_id
+            for assessment in self.evidence_assessments
+            if assessment.available
+        )) != self.evidence_ids:
+            raise ValidationError(
+                "decision evidence_ids must match available evidence assessments"
+            )
         _identifiers(self.governing_rule_ids, "governing_rule_ids")
         _canonical_object(self.provenance_json, "decision provenance_json")
         if self.apprentice_execute_implication:
@@ -587,11 +838,20 @@ class GovernanceDecision:
                 assessment.canonical_value()
                 for assessment in self.authority_assessments
             ],
+            "evidence_assessments": [
+                assessment.canonical_value()
+                for assessment in self.evidence_assessments
+            ],
+            "human_approval_assessments": [
+                assessment.canonical_value()
+                for assessment in self.human_approval_assessments
+            ],
             "decided_at": self.decided_at,
             "effective_at": self.effective_at,
             "evidence_ids": list(self.evidence_ids),
             "governance_decision_id": self.governance_decision_id,
             "governing_rule_ids": list(self.governing_rule_ids),
+            "operation_definition_hash": self.operation_definition_hash,
             "outcome": self.outcome,
             "permission_profile_applicable": self.permission_profile_applicable,
             "permission_profile_hash": self.permission_profile_hash,

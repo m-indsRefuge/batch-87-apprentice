@@ -9,6 +9,8 @@ from batch87_apprentice.common.canonical_json import canonical_json_text
 from batch87_apprentice.governance.contracts import (
     AUTHORITY_SOURCE_BY_CLASS,
     AuthorityRecord,
+    HumanApproval,
+    OperationDefinition,
 )
 from batch87_apprentice.persistence.config import DatabaseConfig
 from batch87_apprentice.persistence.contracts import (
@@ -154,6 +156,24 @@ def build_harness(
         clock=lambda: NOW,
         identifier_factory=IdentifierSequence(identifier_start),
     )
+    for operation_name, action_class, autonomous in (
+        ("observe_fixture", "observe", False),
+        ("analyse_fixture", "analyse", False),
+        ("propose_fixture", "propose", False),
+        ("execute_fixture", "execute", False),
+        ("autonomous_execute_fixture", "execute", True),
+    ):
+        runtime.register_operation_definition(
+            OperationDefinition(
+                name=operation_name,
+                action_class=action_class,
+                autonomous=autonomous,
+                registered_by_principal="codex_development_harness",
+                registered_at=NOW,
+                description=f"Deterministic {operation_name} operation.",
+            )
+        )
+
     runtime.open_session(
         SessionContract(
             session_id=session_id,
@@ -201,7 +221,7 @@ def authority(
     number: int,
     *,
     evidence_ids: tuple[str, ...],
-    authority_class: str = "nolan_approved",
+    authority_class: str = "approved_project_policy",
     effect: str = "allow",
     principal: str = "apprentice",
     permissions: tuple[str, ...] = ("observe",),
@@ -246,11 +266,52 @@ def authority(
     )
 
 
+def human_approval(
+    harness: I2Harness,
+    number: int,
+    *,
+    evidence_ids: tuple[str, ...],
+    requested_operation: str = "observe_fixture",
+    principal: str = "apprentice",
+    permissions: tuple[str, ...] = ("observe",),
+    project_scope_id: str | None = None,
+    scope_id: str | None = None,
+    task_id: str | None = None,
+    approved_at: str = NOW,
+    expires_at: str | None = LATER,
+    single_use: bool = True,
+    conditions: tuple[str, ...] = (),
+) -> HumanApproval:
+    return HumanApproval(
+        human_approval_id=uid(number),
+        requested_operation=requested_operation,
+        subject_principal=principal,
+        permissions=permissions,
+        project_scope_id=(
+            harness.project_scope_id if project_scope_id is None else project_scope_id
+        ),
+        scope_id=harness.project_scope_id if scope_id is None else scope_id,
+        task_id=task_id,
+        approved_by_entity_id=harness.operator_id,
+        approved_at=approved_at,
+        expires_at=expires_at,
+        conditions=conditions,
+        single_use=single_use,
+        evidence_ids=evidence_ids,
+        provenance_json=canonical_json_text(
+            {"source": "deterministic human approval fixture"}
+        ),
+        registered_by_principal="codex_development_harness",
+        registered_at=NOW,
+    )
+
+
 def task(
     harness: I2Harness,
     number: int,
     *,
     authority_ids: tuple[str, ...],
+    human_approval_ids: tuple[str, ...] = (),
     required_evidence_ids: tuple[str, ...] = (),
     action_class: str = "observe",
     operation_name: str | None = None,
@@ -286,13 +347,17 @@ def task(
         objective=objective,
         task_type="governed_analysis",
         requested_operation=RequestedOperation(
-            name=operation_name or f"{action_class}_fixture",
+            name=(
+                operation_name
+                or ("autonomous_execute_fixture" if autonomous else f"{action_class}_fixture")
+            ),
             action_class=action_class,
             autonomous=autonomous,
         ),
         requesting_principal=principal,
         authority_grant=authority_grant,
         claimed_authority_ids=authority_ids,
+        claimed_human_approval_ids=human_approval_ids,
         effective_at=NOW,
         governing_constraints=(
             "b87_s1_permissions",
@@ -300,7 +365,11 @@ def task(
         ),
         required_evidence_ids=required_evidence_ids,
         allowed_sources=("approved_evidence",),
-        prohibited_actions=("execute", "autonomous_action"),
+        prohibited_actions=(
+            ("execute", "autonomous_action")
+            if principal == "apprentice"
+            else ("autonomous_action",)
+        ),
         expected_output_schema_id=(
             "https://batch87.local/schemas/output/test-analysis"
         ),

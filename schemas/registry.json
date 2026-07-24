@@ -1,7 +1,7 @@
 {
   "schemas": [
     {
-      "content_hash": "096ec4feacabfcdea8aecc5e57a64bffe3ce61e8ac5e4bcefe0a89e64b52819e",
+      "content_hash": "18095a99e6e3e70da3d4305edf4c0623ea2e49af19895dd4d621097ecd573a7f",
       "id": "https://batch87.local/schemas/protocols/task-contract/1.0.0",
       "path": "protocols/task-contract/1.0.0.schema.json",
       "status": "active",

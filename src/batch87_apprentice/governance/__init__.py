@@ -3,6 +3,8 @@
 from .contracts import (
     AuthorityRecord,
     GovernanceDecision,
+    HumanApproval,
+    OperationDefinition,
     TaskStopEvent,
     active_b87_s1_permission_profile,
 )
@@ -12,6 +14,8 @@ __all__ = [
     "AuthorityRecord",
     "GovernanceDecision",
     "GovernanceEngine",
+    "HumanApproval",
+    "OperationDefinition",
     "TaskStopEvent",
     "active_b87_s1_permission_profile",
 ]

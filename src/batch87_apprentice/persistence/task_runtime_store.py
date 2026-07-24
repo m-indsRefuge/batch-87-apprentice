@@ -26,11 +26,14 @@ from batch87_apprentice.governance.contracts import (
     AuthorityRecord,
     EvaluationResult,
     GovernanceRule,
+    HumanApproval,
+    OperationDefinition,
     PermissionProfile,
 )
 from batch87_apprentice.governance.engine import (
     AuthorityRuntimeContext,
     EvaluationContext,
+    HumanApprovalRuntimeContext,
     EvaluationIdentifiers,
     GovernanceEngine,
 )
@@ -99,6 +102,40 @@ def _authority_from_row(row: sqlite3.Row) -> AuthorityRecord:
     )
 
 
+def _operation_definition_from_row(row: sqlite3.Row) -> OperationDefinition:
+    return OperationDefinition(
+        name=row["operation_name"],
+        schema_version=row["schema_version"],
+        action_class=row["action_class"],
+        autonomous=bool(row["autonomous"]),
+        registered_by_principal=row["registered_by_principal"],
+        registered_at=row["registered_at"],
+        description=row["description"],
+    )
+
+
+def _human_approval_from_row(row: sqlite3.Row) -> HumanApproval:
+    return HumanApproval(
+        human_approval_id=row["human_approval_id"],
+        schema_version=row["schema_version"],
+        requested_operation=row["requested_operation"],
+        subject_principal=row["subject_principal"],
+        permissions=tuple(parse_json(row["permissions_json"])),
+        project_scope_id=row["project_scope_id"],
+        scope_id=row["scope_id"],
+        task_id=row["task_id"],
+        approved_by_entity_id=row["approved_by_entity_id"],
+        approved_at=row["approved_at"],
+        expires_at=row["expires_at"],
+        conditions=tuple(parse_json(row["conditions_json"])),
+        single_use=bool(row["single_use"]),
+        evidence_ids=tuple(parse_json(row["evidence_ids_json"])),
+        provenance_json=row["provenance_json"],
+        registered_by_principal=row["registered_by_principal"],
+        registered_at=row["registered_at"],
+    )
+
+
 def _transaction_value(
     *,
     transaction_id: str,
@@ -131,6 +168,7 @@ def _transaction_value(
 def _evidence_inputs(
     task: TaskContract,
     authorities: Mapping[str, AuthorityRecord],
+    approvals: Mapping[str, HumanApproval],
     policy_violations: tuple[PolicyViolation, ...],
 ) -> tuple[tuple[str, str], ...]:
     values: list[tuple[str, str]] = [
@@ -144,12 +182,19 @@ def _evidence_inputs(
                 ("authority", evidence_id)
                 for evidence_id in record.evidence_ids
             )
+    for approval_id in task.claimed_human_approval_ids:
+        approval = approvals.get(approval_id)
+        if approval is not None:
+            values.extend(
+                ("approval", evidence_id)
+                for evidence_id in approval.evidence_ids
+            )
     for violation in policy_violations:
         values.extend(
             ("policy", evidence_id)
             for evidence_id in violation.evidence_ids
         )
-    return tuple(values)
+    return tuple(dict.fromkeys(values))
 
 
 def _available_evidence_ids(
@@ -290,8 +335,19 @@ class TaskRuntimeStore:
 
         self._kernel.write(operation)
 
-    def open_session(self, session: SessionContract) -> str:
+    def open_session(
+        self,
+        session: SessionContract,
+        *,
+        initial_transition_id: str,
+        changed_by_principal: str,
+    ) -> str:
         """Persist one exact session identity and participant set atomically."""
+
+        validate_identifier(
+            initial_transition_id,
+            field="initial_transition_id",
+        )
 
         def operation(connection: sqlite3.Connection) -> str:
             project = connection.execute(
@@ -368,6 +424,20 @@ class TaskRuntimeStore:
                         ),
                     )
                     for entity_id in session.participant_entity_ids
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO session_state_transitions (
+                    transition_id, session_id, sequence_number, from_status,
+                    to_status, reason_code, changed_at, changed_by_principal
+                ) VALUES (?, ?, 0, NULL, 'open', 'session_opened', ?, ?)
+                """,
+                (
+                    initial_transition_id,
+                    session.session_id,
+                    session.opened_at,
+                    changed_by_principal,
                 ),
             )
             return session.content_hash
@@ -537,6 +607,349 @@ class TaskRuntimeStore:
 
         return self._kernel.write(operation)
 
+    def register_operation_definition(
+        self,
+        definition: OperationDefinition,
+    ) -> str:
+        """Register one immutable deterministic operation definition."""
+
+        def operation(connection: sqlite3.Connection) -> str:
+            existing = connection.execute(
+                "SELECT * FROM operation_definitions WHERE operation_name = ?",
+                (definition.name,),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO operation_definitions (
+                        operation_name, schema_version, action_class, autonomous,
+                        registered_by_principal, registered_at, description,
+                        canonical_json, content_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        definition.name,
+                        definition.schema_version,
+                        definition.action_class,
+                        int(definition.autonomous),
+                        definition.registered_by_principal,
+                        definition.registered_at,
+                        definition.description,
+                        definition.canonical_json,
+                        definition.content_hash,
+                    ),
+                )
+            else:
+                stored = _operation_definition_from_row(existing)
+                if (
+                    stored.canonical_json != definition.canonical_json
+                    or existing["content_hash"] != definition.content_hash
+                ):
+                    raise ConflictError(
+                        f"operation definition conflicts: {definition.name}"
+                    )
+            return definition.content_hash
+
+        return self._kernel.write(operation)
+
+    def register_human_approval(
+        self,
+        approval: HumanApproval,
+        evidence_items: tuple[EvidenceItem, ...],
+    ) -> str:
+        """Register explicit human approval before a task may claim it."""
+
+        evidence_map = {item.evidence_id: item for item in evidence_items}
+        if len(evidence_map) != len(evidence_items):
+            raise ValidationError("approval evidence contains duplicate identifiers")
+        if set(evidence_map) - set(approval.evidence_ids):
+            raise ValidationError(
+                "unreferenced evidence cannot enter approval registration"
+            )
+
+        def operation(connection: sqlite3.Connection) -> str:
+            definition = connection.execute(
+                "SELECT content_hash FROM operation_definitions WHERE operation_name = ?",
+                (approval.requested_operation,),
+            ).fetchone()
+            if definition is None:
+                raise ValidationError(
+                    "human approval requires a registered operation definition"
+                )
+            for item in evidence_items:
+                _insert_evidence(connection, item)
+            available = _available_evidence_ids(connection, approval.evidence_ids)
+            if set(available) != set(approval.evidence_ids):
+                raise ValidationError(
+                    "human approval requires valid non-model evidence"
+                )
+            existing = connection.execute(
+                "SELECT * FROM human_approvals WHERE human_approval_id = ?",
+                (approval.human_approval_id,),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO human_approvals (
+                        human_approval_id, schema_version, requested_operation,
+                        subject_principal, permissions_json, project_scope_id,
+                        scope_id, task_id, approved_by_entity_id, approved_at,
+                        expires_at, conditions_json, single_use, consumed_at,
+                        consumed_by_task_id, consumed_by_decision_id,
+                        evidence_ids_json, provenance_json,
+                        registered_by_principal, registered_at, canonical_json,
+                        content_hash
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL,
+                        NULL, ?, ?, ?, ?, ?, ?
+                    )
+                    """,
+                    (
+                        approval.human_approval_id,
+                        approval.schema_version,
+                        approval.requested_operation,
+                        approval.subject_principal,
+                        canonical_json_text(list(approval.permissions)),
+                        approval.project_scope_id,
+                        approval.scope_id,
+                        approval.task_id,
+                        approval.approved_by_entity_id,
+                        approval.approved_at,
+                        approval.expires_at,
+                        canonical_json_text(list(approval.conditions)),
+                        int(approval.single_use),
+                        canonical_json_text(list(approval.evidence_ids)),
+                        approval.provenance_json,
+                        approval.registered_by_principal,
+                        approval.registered_at,
+                        approval.canonical_json,
+                        approval.content_hash,
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO human_approval_evidence (
+                        human_approval_id, evidence_id, evidence_order
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        (approval.human_approval_id, evidence_id, index)
+                        for index, evidence_id in enumerate(approval.evidence_ids)
+                    ),
+                )
+            else:
+                stored = _human_approval_from_row(existing)
+                if (
+                    stored.canonical_json != approval.canonical_json
+                    or existing["content_hash"] != approval.content_hash
+                ):
+                    raise ConflictError(
+                        f"human approval conflicts: {approval.human_approval_id}"
+                    )
+                linked = tuple(
+                    row["evidence_id"]
+                    for row in connection.execute(
+                        """
+                        SELECT evidence_id FROM human_approval_evidence
+                        WHERE human_approval_id = ? ORDER BY evidence_order
+                        """,
+                        (approval.human_approval_id,),
+                    )
+                )
+                if linked != approval.evidence_ids:
+                    raise IntegrityInspectionError(
+                        "stored human approval evidence is incomplete"
+                    )
+            return approval.content_hash
+
+        return self._kernel.write(operation)
+
+    def revoke_authority(
+        self,
+        *,
+        authority_record_id: str,
+        revoked_at: str,
+        revoked_by_entity_id: str,
+        reason: str,
+        registered_by_principal: str,
+        provenance_json: str,
+    ) -> str:
+        """Persist one append-only authority revocation."""
+
+        validate_identifier(authority_record_id, field="authority_record_id")
+        validate_identifier(revoked_by_entity_id, field="revoked_by_entity_id")
+        value = {
+            "authority_record_id": authority_record_id,
+            "provenance": parse_json(provenance_json),
+            "reason": reason,
+            "registered_by_principal": registered_by_principal,
+            "revoked_at": revoked_at,
+            "revoked_by_entity_id": revoked_by_entity_id,
+        }
+        canonical = canonical_json_text(value)
+        content_hash = sha256_canonical_json(value)
+
+        def operation(connection: sqlite3.Connection) -> str:
+            authority = connection.execute(
+                "SELECT 1 FROM authority_records WHERE authority_record_id = ?",
+                (authority_record_id,),
+            ).fetchone()
+            if authority is None:
+                raise NotFoundError(f"authority not found: {authority_record_id}")
+            existing = connection.execute(
+                "SELECT canonical_json, content_hash FROM authority_revocations WHERE authority_record_id = ?",
+                (authority_record_id,),
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    INSERT INTO authority_revocations (
+                        authority_record_id, revoked_at, revoked_by_entity_id,
+                        reason, registered_by_principal, provenance_json,
+                        canonical_json, content_hash
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        authority_record_id, revoked_at, revoked_by_entity_id,
+                        reason, registered_by_principal, provenance_json,
+                        canonical, content_hash,
+                    ),
+                )
+            elif (
+                existing["canonical_json"] != canonical
+                or existing["content_hash"] != content_hash
+            ):
+                raise ConflictError("authority already has a different revocation")
+            return content_hash
+
+        return self._kernel.write(operation)
+
+    def transition_session(
+        self,
+        *,
+        session_id: str,
+        to_status: str,
+        transition_id: str,
+        changed_at: str,
+        changed_by_principal: str,
+        reason_code: str,
+    ) -> str:
+        """Append and apply one governed session lifecycle transition."""
+
+        def operation(connection: sqlite3.Connection) -> str:
+            row = connection.execute(
+                "SELECT * FROM sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"session not found: {session_id}")
+            canonical_session = parse_json(row["canonical_json"])
+            participants = tuple(canonical_session["participant_entity_ids"])
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence_number), -1) + 1 FROM session_state_transitions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()[0]
+            connection.execute(
+                """
+                INSERT INTO session_state_transitions (
+                    transition_id, session_id, sequence_number, from_status,
+                    to_status, reason_code, changed_at, changed_by_principal
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    transition_id, session_id, sequence, row["session_status"],
+                    to_status, reason_code, changed_at, changed_by_principal,
+                ),
+            )
+            updated = SessionContract(
+                session_id=session_id,
+                purpose=row["session_purpose"],
+                project_scope_id=row["active_project_scope"],
+                opened_at=row["opened_at"],
+                created_by_entity_id=row["created_by_entity_id"],
+                participant_entity_ids=participants,
+                status=to_status,
+                retention_disposition=row["retention_disposition"],
+                closed_at=(changed_at if to_status in {"closed", "aborted"} else None),
+                contract_version=row["contract_version"],
+            )
+            connection.execute(
+                """
+                UPDATE sessions
+                SET session_status = ?, closed_at = ?, canonical_json = ?,
+                    content_hash = ?
+                WHERE session_id = ?
+                """,
+                (
+                    updated.status, updated.closed_at, updated.canonical_json,
+                    updated.content_hash, session_id,
+                ),
+            )
+            return updated.content_hash
+
+        return self._kernel.write(operation)
+
+    def transition_task(
+        self,
+        *,
+        task_id: str,
+        to_status: str,
+        transition_id: str,
+        changed_at: str,
+        reason_code: str,
+    ) -> str:
+        """Append and apply one governed terminal transition for an active task."""
+
+        validate_identifier(task_id, field="task_id")
+        validate_identifier(transition_id, field="task_transition_id")
+        if to_status not in {"completed", "failed"}:
+            raise ValidationError(
+                "active tasks may transition only to completed or failed here"
+            )
+        if not isinstance(reason_code, str) or not reason_code.strip():
+            raise ValidationError("task transition reason_code must be non-empty")
+
+        def operation(connection: sqlite3.Connection) -> str:
+            row = connection.execute(
+                "SELECT status FROM tasks WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if row is None:
+                raise NotFoundError(f"task not found: {task_id}")
+            if row["status"] != "active":
+                raise ConflictError("only active tasks can be completed or failed")
+            transaction = connection.execute(
+                "SELECT transaction_id FROM governed_runtime_transactions WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()
+            if transaction is None:
+                raise IntegrityInspectionError(
+                    "task transition requires its governed transaction"
+                )
+            sequence = connection.execute(
+                "SELECT COALESCE(MAX(sequence_number), -1) + 1 FROM task_state_transitions WHERE task_id = ?",
+                (task_id,),
+            ).fetchone()[0]
+            connection.execute(
+                """
+                INSERT INTO task_state_transitions (
+                    transition_id, task_id, sequence_number, from_status,
+                    to_status, reason_code, changed_at, changed_by, transaction_id
+                ) VALUES (?, ?, ?, 'active', ?, ?, ?, 'governance_kernel', ?)
+                """,
+                (
+                    transition_id, task_id, sequence, to_status, reason_code,
+                    changed_at, transaction["transaction_id"],
+                ),
+            )
+            connection.execute(
+                "UPDATE tasks SET status = ?, completed_at = ? WHERE task_id = ?",
+                (to_status, changed_at, task_id),
+            )
+            return transition_id
+
+        return self._kernel.write(operation)
+
     def evaluate_task(
         self,
         *,
@@ -557,8 +970,10 @@ class TaskRuntimeStore:
         if len(evidence_map) != len(evidence_items):
             raise ValidationError("evidence inputs contain duplicate identifiers")
         allowed_evidence_ids = {
-            evidence_id for _, evidence_id in _evidence_inputs(
+            evidence_id
+            for _, evidence_id in _evidence_inputs(
                 task,
+                {},
                 {},
                 policy_violations,
             )
@@ -573,8 +988,7 @@ class TaskRuntimeStore:
             observed_policy_violations = list(policy_violations)
             runtime = connection.execute(
                 """
-                SELECT status
-                FROM runtime_instances
+                SELECT status FROM runtime_instances
                 WHERE runtime_instance_id = ?
                 """,
                 (runtime_instance_id,),
@@ -588,25 +1002,16 @@ class TaskRuntimeStore:
                 """
                 SELECT active_project_scope, session_status,
                        created_by_entity_id
-                FROM sessions
-                WHERE session_id = ?
+                FROM sessions WHERE session_id = ?
                 """,
                 (task.session_id,),
             ).fetchone()
             project = connection.execute(
-                """
-                SELECT scope_kind, status
-                FROM scopes
-                WHERE scope_id = ?
-                """,
+                "SELECT scope_kind, status FROM scopes WHERE scope_id = ?",
                 (task.project_scope_id,),
             ).fetchone()
             requested = connection.execute(
-                """
-                SELECT status
-                FROM scopes
-                WHERE scope_id = ?
-                """,
+                "SELECT status FROM scopes WHERE scope_id = ?",
                 (task.requested_scope_id,),
             ).fetchone()
             session_valid = (
@@ -632,53 +1037,95 @@ class TaskRuntimeStore:
             for item in evidence_items:
                 _insert_evidence(connection, item)
 
-            referenced_evidence = {
-                evidence_id
-                for _, evidence_id in _evidence_inputs(
-                    task,
-                    {},
-                    policy_violations,
-                )
-            }
-            available_evidence = _available_evidence_ids(
-                connection,
-                referenced_evidence,
-            )
+            operation_definition: OperationDefinition | None = None
+            operation_row = connection.execute(
+                "SELECT * FROM operation_definitions WHERE operation_name = ?",
+                (task.requested_operation.name,),
+            ).fetchone()
+            if operation_row is not None:
+                try:
+                    candidate = _operation_definition_from_row(operation_row)
+                    if (
+                        operation_row["canonical_json"] == candidate.canonical_json
+                        and hashes_match(
+                            operation_row["content_hash"],
+                            candidate.content_hash,
+                        )
+                    ):
+                        operation_definition = candidate
+                    else:
+                        raise ValidationError("operation definition hash mismatch")
+                except ValidationError:
+                    observed_policy_violations.append(
+                        PolicyViolation(
+                            code="integrity_violation",
+                            source="operation_definition_integrity",
+                            detail=(
+                                "The registered operation definition failed "
+                                "canonical integrity verification."
+                            ),
+                        )
+                    )
+
             resolved_authorities: dict[str, AuthorityRecord] = {}
             for authority_id in task.claimed_authority_ids:
                 row = connection.execute(
-                    """
-                    SELECT *
-                    FROM authority_records
-                    WHERE authority_record_id = ?
-                    """,
+                    "SELECT * FROM authority_records WHERE authority_record_id = ?",
                     (authority_id,),
                 ).fetchone()
-                if row is not None:
-                    try:
-                        record = _authority_from_row(row)
-                        authority_integrity_valid = (
-                            hashes_match(
-                                row["content_hash"],
-                                record.content_hash,
-                            )
-                            and row["canonical_json"] == record.canonical_json
+                if row is None:
+                    continue
+                try:
+                    record = _authority_from_row(row)
+                    if (
+                        not hashes_match(row["content_hash"], record.content_hash)
+                        or row["canonical_json"] != record.canonical_json
+                    ):
+                        raise ValidationError("authority hash mismatch")
+                except ValidationError:
+                    observed_policy_violations.append(
+                        PolicyViolation(
+                            code="integrity_violation",
+                            source="authority_integrity",
+                            detail=(
+                                "A claimed authority record failed canonical "
+                                "integrity verification."
+                            ),
                         )
-                    except ValidationError:
-                        authority_integrity_valid = False
-                    if not authority_integrity_valid:
-                        observed_policy_violations.append(
-                            PolicyViolation(
-                                code="integrity_violation",
-                                source="authority_integrity",
-                                detail=(
-                                    "A claimed authority record failed canonical "
-                                    "integrity verification."
-                                ),
-                            )
+                    )
+                    continue
+                resolved_authorities[authority_id] = record
+
+            resolved_approvals: dict[str, HumanApproval] = {}
+            approval_rows: dict[str, sqlite3.Row] = {}
+            for approval_id in task.claimed_human_approval_ids:
+                row = connection.execute(
+                    "SELECT * FROM human_approvals WHERE human_approval_id = ?",
+                    (approval_id,),
+                ).fetchone()
+                if row is None:
+                    continue
+                try:
+                    approval = _human_approval_from_row(row)
+                    if (
+                        not hashes_match(row["content_hash"], approval.content_hash)
+                        or row["canonical_json"] != approval.canonical_json
+                    ):
+                        raise ValidationError("human approval hash mismatch")
+                except ValidationError:
+                    observed_policy_violations.append(
+                        PolicyViolation(
+                            code="integrity_violation",
+                            source="human_approval_integrity",
+                            detail=(
+                                "A claimed human approval failed canonical "
+                                "integrity verification."
+                            ),
                         )
-                        continue
-                    resolved_authorities[authority_id] = record
+                    )
+                    continue
+                resolved_approvals[approval_id] = approval
+                approval_rows[approval_id] = row
 
             effective_policy_violations = tuple(observed_policy_violations)
             referenced_evidence = {
@@ -686,6 +1133,7 @@ class TaskRuntimeStore:
                 for _, evidence_id in _evidence_inputs(
                     task,
                     resolved_authorities,
+                    resolved_approvals,
                     effective_policy_violations,
                 )
             }
@@ -700,13 +1148,16 @@ class TaskRuntimeStore:
                     row["evidence_id"]
                     for row in connection.execute(
                         """
-                        SELECT evidence_id
-                        FROM authority_record_evidence
+                        SELECT evidence_id FROM authority_record_evidence
                         WHERE authority_record_id = ?
                         """,
                         (authority_id,),
                     )
                 }
+                revoked = connection.execute(
+                    "SELECT 1 FROM authority_revocations WHERE authority_record_id = ?",
+                    (authority_id,),
+                ).fetchone() is not None
                 authority_contexts[authority_id] = AuthorityRuntimeContext(
                     scope_matches=(
                         _scope_contains(
@@ -727,6 +1178,44 @@ class TaskRuntimeStore:
                         and record.issuer_entity_id
                         == session["created_by_entity_id"]
                     ),
+                    revoked=revoked,
+                )
+
+            approval_contexts: dict[str, HumanApprovalRuntimeContext] = {}
+            for approval_id, approval in resolved_approvals.items():
+                linked_evidence = {
+                    row["evidence_id"]
+                    for row in connection.execute(
+                        """
+                        SELECT evidence_id FROM human_approval_evidence
+                        WHERE human_approval_id = ?
+                        """,
+                        (approval_id,),
+                    )
+                }
+                stored = approval_rows[approval_id]
+                approval_contexts[approval_id] = HumanApprovalRuntimeContext(
+                    scope_matches=(
+                        _scope_contains(
+                            connection,
+                            ancestor_scope_id=approval.scope_id,
+                            descendant_scope_id=task.requested_scope_id,
+                        )
+                        if requested_valid
+                        else False
+                    ),
+                    evidence_complete=all(
+                        evidence_id in available_evidence
+                        and evidence_id in linked_evidence
+                        for evidence_id in approval.evidence_ids
+                    ),
+                    approver_is_session_operator=(
+                        session is not None
+                        and approval.approved_by_entity_id
+                        == session["created_by_entity_id"]
+                    ),
+                    consumed_by_task_id=stored["consumed_by_task_id"],
+                    consumed_at=stored["consumed_at"],
                 )
 
             connection.execute(
@@ -753,7 +1242,8 @@ class TaskRuntimeStore:
                     project_scope_id, requested_scope_id, requested_operation,
                     requested_action_class, operation_autonomous,
                     requesting_principal, authority_grant_json,
-                    claimed_authority_ids_json, allowed_sources_json,
+                    claimed_authority_ids_json,
+                    claimed_human_approval_ids_json, allowed_sources_json,
                     prohibited_actions_json, expected_output_schema_id,
                     stop_conditions_json, governing_constraints_json,
                     required_evidence_ids_json, effective_at, provenance_json,
@@ -761,7 +1251,7 @@ class TaskRuntimeStore:
                     started_at, completed_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, 'pending', ?, NULL, NULL
+                    ?, ?, ?, ?, ?, 'pending', ?, NULL, NULL
                 )
                 """,
                 (
@@ -778,6 +1268,7 @@ class TaskRuntimeStore:
                     task.requesting_principal,
                     canonical_json_text(list(task.authority_grant)),
                     canonical_json_text(list(task.claimed_authority_ids)),
+                    canonical_json_text(list(task.claimed_human_approval_ids)),
                     canonical_json_text(list(task.allowed_sources)),
                     canonical_json_text(list(task.prohibited_actions)),
                     task.expected_output_schema_id,
@@ -811,6 +1302,7 @@ class TaskRuntimeStore:
             result = engine.evaluate(
                 task=task,
                 authorities=resolved_authorities,
+                human_approvals=resolved_approvals,
                 permission_profile=permission_profile,
                 policy_violations=effective_policy_violations,
                 context=EvaluationContext(
@@ -819,6 +1311,8 @@ class TaskRuntimeStore:
                     requested_scope_valid=requested_valid,
                     available_evidence_ids=available_evidence,
                     authority_contexts=authority_contexts,
+                    human_approval_contexts=approval_contexts,
+                    operation_definition=operation_definition,
                 ),
                 identifiers=identifiers,
                 decided_at=decided_at,
@@ -832,19 +1326,20 @@ class TaskRuntimeStore:
                     governance_decision_id, transaction_id, task_id, session_id,
                     project_scope_id, requested_scope_id, requesting_principal,
                     runtime_execution_principal, requested_operation,
-                    requested_action_class,
+                    requested_action_class, operation_definition_hash,
                     permission_profile_id, permission_profile_hash,
                     permission_profile_applicable,
                     precedence_authority_class, decision, reason_codes_json,
                     reasons_json, authority_assessments_json,
-                    policy_violations_json, effective_at, evidence_ids_json,
-                    governing_rule_ids_json, decided_at, runtime_instance_id,
-                    task_contract_hash, provenance_json,
-                    apprentice_execute_implication,
+                    human_approval_assessments_json,
+                    evidence_assessments_json, policy_violations_json,
+                    effective_at, evidence_ids_json, governing_rule_ids_json,
+                    decided_at, runtime_instance_id, task_contract_hash,
+                    provenance_json, apprentice_execute_implication,
                     canonical_json, content_hash
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, 0, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?
                 )
                 """,
                 (
@@ -858,6 +1353,7 @@ class TaskRuntimeStore:
                     decision.runtime_execution_principal,
                     decision.requested_operation.name,
                     decision.requested_operation.action_class,
+                    decision.operation_definition_hash,
                     decision.permission_profile_id,
                     decision.permission_profile_hash,
                     int(decision.permission_profile_applicable),
@@ -873,6 +1369,18 @@ class TaskRuntimeStore:
                         [
                             assessment.canonical_value()
                             for assessment in decision.authority_assessments
+                        ]
+                    ),
+                    canonical_json_text(
+                        [
+                            assessment.canonical_value()
+                            for assessment in decision.human_approval_assessments
+                        ]
+                    ),
+                    canonical_json_text(
+                        [
+                            assessment.canonical_value()
+                            for assessment in decision.evidence_assessments
                         ]
                     ),
                     canonical_json_text(
@@ -917,10 +1425,32 @@ class TaskRuntimeStore:
                     )
                 ),
             )
-            evidence_inputs = _evidence_inputs(
-                task,
-                resolved_authorities,
-                effective_policy_violations,
+            connection.executemany(
+                """
+                INSERT INTO governance_decision_human_approvals (
+                    governance_decision_id, input_order,
+                    claimed_human_approval_id, resolved_human_approval_id,
+                    validation_status, selected, consumed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        decision.governance_decision_id,
+                        index,
+                        assessment.claimed_human_approval_id,
+                        (
+                            assessment.claimed_human_approval_id
+                            if assessment.resolved_record_hash is not None
+                            else None
+                        ),
+                        assessment.result_code,
+                        int(assessment.selected),
+                        int(assessment.consumed),
+                    )
+                    for index, assessment in enumerate(
+                        decision.human_approval_assessments
+                    )
+                ),
             )
             connection.executemany(
                 """
@@ -934,21 +1464,17 @@ class TaskRuntimeStore:
                     (
                         decision.governance_decision_id,
                         index,
-                        evidence_id,
+                        assessment.required_evidence_id,
                         (
-                            evidence_id
-                            if evidence_id in available_evidence
+                            assessment.required_evidence_id
+                            if assessment.available
                             else None
                         ),
-                        input_kind,
-                        (
-                            "available"
-                            if evidence_id in available_evidence
-                            else "missing"
-                        ),
+                        assessment.input_kind,
+                        "available" if assessment.available else "missing",
                     )
-                    for index, (input_kind, evidence_id) in enumerate(
-                        evidence_inputs
+                    for index, assessment in enumerate(
+                        decision.evidence_assessments
                     )
                 ),
             )
@@ -959,16 +1485,34 @@ class TaskRuntimeStore:
                 ) VALUES (?, ?, ?)
                 """,
                 (
-                    (
-                        decision.governance_decision_id,
-                        index,
-                        rule_id,
-                    )
-                    for index, rule_id in enumerate(
-                        decision.governing_rule_ids
-                    )
+                    (decision.governance_decision_id, index, rule_id)
+                    for index, rule_id in enumerate(decision.governing_rule_ids)
                 ),
             )
+
+            for assessment in decision.human_approval_assessments:
+                if not assessment.consumed:
+                    continue
+                cursor = connection.execute(
+                    """
+                    UPDATE human_approvals
+                    SET consumed_at = ?, consumed_by_task_id = ?,
+                        consumed_by_decision_id = ?
+                    WHERE human_approval_id = ?
+                      AND single_use = 1
+                      AND consumed_at IS NULL
+                    """,
+                    (
+                        decided_at,
+                        task.task_id,
+                        decision.governance_decision_id,
+                        assessment.claimed_human_approval_id,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ConflictError(
+                        "single-use human approval could not be consumed"
+                    )
 
             if result.stop_event is not None:
                 stop = result.stop_event
@@ -990,9 +1534,7 @@ class TaskRuntimeStore:
                         stop.stop_condition,
                         stop.trigger_source,
                         canonical_json_text(list(stop.reason_codes)),
-                        canonical_json_text(
-                            list(stop.preserved_evidence_ids)
-                        ),
+                        canonical_json_text(list(stop.preserved_evidence_ids)),
                         stop.created_at,
                         stop.canonical_json,
                         stop.content_hash,
@@ -1025,8 +1567,7 @@ class TaskRuntimeStore:
             if result.task_status == "active":
                 connection.execute(
                     """
-                    UPDATE tasks
-                    SET status = 'active', started_at = ?
+                    UPDATE tasks SET status = 'active', started_at = ?
                     WHERE task_id = ?
                     """,
                     (decided_at, task.task_id),
@@ -1034,8 +1575,7 @@ class TaskRuntimeStore:
             else:
                 connection.execute(
                     """
-                    UPDATE tasks
-                    SET status = 'stopped', completed_at = ?
+                    UPDATE tasks SET status = 'stopped', completed_at = ?
                     WHERE task_id = ?
                     """,
                     (decided_at, task.task_id),
@@ -1044,15 +1584,10 @@ class TaskRuntimeStore:
             structured_failures = (
                 []
                 if result.task_status == "active"
-                else [
-                    reason.canonical_value()
-                    for reason in decision.reasons
-                ]
+                else [reason.canonical_value() for reason in decision.reasons]
             )
             transaction_status = (
-                "committed"
-                if result.task_status == "active"
-                else "stopped"
+                "committed" if result.task_status == "active" else "stopped"
             )
             transaction_value = _transaction_value(
                 transaction_id=identifiers.transaction_id,
@@ -1163,19 +1698,58 @@ class TaskRuntimeStore:
                     "permission profile integrity blocks reconstruction"
                 )
 
+            operation_row = connection.execute(
+                "SELECT * FROM operation_definitions WHERE operation_name = ?",
+                (decision["requested_operation"],),
+            ).fetchone()
+            operation_definition: OperationDefinition | None = None
+            if operation_row is None:
+                if (
+                    decision["decision"] != "stop"
+                    or decision["operation_definition_hash"] != _ZERO_HASH
+                ):
+                    raise IntegrityInspectionError(
+                        "operation definition is missing during reconstruction"
+                    )
+            else:
+                operation_definition = _operation_definition_from_row(operation_row)
+                if (
+                    operation_row["canonical_json"]
+                    != operation_definition.canonical_json
+                    or not hashes_match(
+                        operation_row["content_hash"],
+                        operation_definition.content_hash,
+                    )
+                    or not hashes_match(
+                        decision["operation_definition_hash"],
+                        operation_definition.content_hash,
+                    )
+                ):
+                    raise IntegrityInspectionError(
+                        "operation definition integrity blocks reconstruction"
+                    )
+
             authority_inputs: list[dict[str, Any]] = []
+            authority_assessment_values: list[dict[str, Any]] = []
             for row in connection.execute(
                 """
                 SELECT input.*, authority.canonical_json,
-                       authority.content_hash
+                       authority.content_hash,
+                       revocation.canonical_json AS revocation_canonical_json,
+                       revocation.content_hash AS revocation_content_hash,
+                       revocation.revoked_at AS revocation_revoked_at
                 FROM governance_decision_authority_inputs AS input
                 LEFT JOIN authority_records AS authority
                   ON authority.authority_record_id =
                      input.resolved_authority_record_id
+                LEFT JOIN authority_revocations AS revocation
+                  ON revocation.authority_record_id =
+                     input.resolved_authority_record_id
+                 AND revocation.revoked_at <= ?
                 WHERE input.governance_decision_id = ?
                 ORDER BY input.input_order
                 """,
-                (decision["governance_decision_id"],),
+                (decision["decided_at"], decision["governance_decision_id"]),
             ):
                 authority_value = (
                     None
@@ -1189,15 +1763,117 @@ class TaskRuntimeStore:
                     raise IntegrityInspectionError(
                         "authority integrity blocks reconstruction"
                     )
+                revocation_value = (
+                    None if row["revocation_canonical_json"] is None
+                    else parse_json(row["revocation_canonical_json"])
+                )
+                if revocation_value is not None and not hashes_match(
+                    row["revocation_content_hash"],
+                    sha256_canonical_json(revocation_value),
+                ):
+                    raise IntegrityInspectionError(
+                        "authority revocation integrity blocks reconstruction"
+                    )
                 authority_inputs.append(
                     {
                         "authority_record": authority_value,
+                        "authority_revocation": revocation_value,
                         "claimed_authority_id": row["claimed_authority_id"],
                         "validation_status": row["validation_status"],
                     }
                 )
+                authority_assessment_values.append(
+                    {
+                        "applicable": row["validation_status"] == "applicable",
+                        "authority_class": (
+                            None if authority_value is None
+                            else authority_value["authority_class"]
+                        ),
+                        "claimed_authority_id": row["claimed_authority_id"],
+                        "resolved_record_hash": row["content_hash"],
+                        "result_code": row["validation_status"],
+                    }
+                )
+            if authority_assessment_values != canonical_decision.get(
+                "authority_assessments"
+            ):
+                raise IntegrityInspectionError(
+                    "authority assessment relationships block reconstruction"
+                )
+
+            human_approval_inputs: list[dict[str, Any]] = []
+            human_approval_assessment_values: list[dict[str, Any]] = []
+            for row in connection.execute(
+                """
+                SELECT input.*, approval.canonical_json, approval.content_hash,
+                       approval.single_use, approval.consumed_at,
+                       approval.consumed_by_task_id,
+                       approval.consumed_by_decision_id
+                FROM governance_decision_human_approvals AS input
+                LEFT JOIN human_approvals AS approval
+                  ON approval.human_approval_id =
+                     input.resolved_human_approval_id
+                WHERE input.governance_decision_id = ?
+                ORDER BY input.input_order
+                """,
+                (decision["governance_decision_id"],),
+            ):
+                approval_value = (
+                    None if row["canonical_json"] is None
+                    else parse_json(row["canonical_json"])
+                )
+                if approval_value is not None and not hashes_match(
+                    row["content_hash"],
+                    sha256_canonical_json(approval_value),
+                ):
+                    raise IntegrityInspectionError(
+                        "human approval integrity blocks reconstruction"
+                    )
+                if row["consumed"] and (
+                    not row["selected"]
+                    or not row["single_use"]
+                    or row["consumed_at"] is None
+                    or row["consumed_by_task_id"] != task_id
+                    or row["consumed_by_decision_id"]
+                    != decision["governance_decision_id"]
+                ):
+                    raise IntegrityInspectionError(
+                        "human approval consumption blocks reconstruction"
+                    )
+                human_approval_inputs.append(
+                    {
+                        "human_approval": approval_value,
+                        "claimed_human_approval_id":
+                            row["claimed_human_approval_id"],
+                        "validation_status": row["validation_status"],
+                        "selected": bool(row["selected"]),
+                        "consumed": bool(row["consumed"]),
+                        "consumed_at": row["consumed_at"],
+                        "consumed_by_task_id": row["consumed_by_task_id"],
+                        "consumed_by_decision_id":
+                            row["consumed_by_decision_id"],
+                    }
+                )
+                human_approval_assessment_values.append(
+                    {
+                        "applicable": row["validation_status"] == "applicable",
+                        "claimed_human_approval_id":
+                            row["claimed_human_approval_id"],
+                        "consumed": bool(row["consumed"]),
+                        "resolved_record_hash": row["content_hash"],
+                        "selected": bool(row["selected"]),
+                        "result_code": row["validation_status"],
+                    }
+                )
+            if human_approval_assessment_values != canonical_decision.get(
+                "human_approval_assessments"
+            ):
+                raise IntegrityInspectionError(
+                    "human approval relationships block reconstruction"
+                )
 
             evidence_inputs: list[dict[str, Any]] = []
+            evidence_assessment_values: list[dict[str, Any]] = []
             for row in connection.execute(
                 """
                 SELECT input.*, evidence.evidence_kind,
@@ -1244,6 +1920,19 @@ class TaskRuntimeStore:
                         "integrity_status": row["integrity_status"],
                         "validation_status": row["validation_status"],
                     }
+                )
+                evidence_assessment_values.append(
+                    {
+                        "available": row["validation_status"] == "available",
+                        "input_kind": row["input_kind"],
+                        "required_evidence_id": row["required_evidence_id"],
+                    }
+                )
+            if evidence_assessment_values != canonical_decision.get(
+                "evidence_assessments"
+            ):
+                raise IntegrityInspectionError(
+                    "decision evidence relationships block reconstruction"
                 )
             transitions = [
                 {
@@ -1301,6 +1990,12 @@ class TaskRuntimeStore:
                         "version": row["rule_version"],
                     }
                 )
+            if [rule["governance_rule_id"] for rule in rules] != (
+                canonical_decision.get("governing_rule_ids")
+            ):
+                raise IntegrityInspectionError(
+                    "governance rule relationships block reconstruction"
+                )
             stop = connection.execute(
                 "SELECT * FROM task_stop_events WHERE task_id = ?",
                 (task_id,),
@@ -1344,6 +2039,11 @@ class TaskRuntimeStore:
                 "authority_inputs": authority_inputs,
                 "decision": canonical_decision,
                 "evidence_inputs": evidence_inputs,
+                "human_approval_inputs": human_approval_inputs,
+                "operation_definition": (
+                    None if operation_definition is None
+                    else operation_definition.canonical_value()
+                ),
                 "permission_profile": parse_json(profile["canonical_json"]),
                 "rules": rules,
                 "session": canonical_session,

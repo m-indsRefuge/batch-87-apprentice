@@ -73,6 +73,41 @@ BEGIN
     SELECT RAISE(ABORT, 'governance rules cannot be deleted');
 END;
 
+
+CREATE TABLE operation_definitions (
+    operation_name TEXT PRIMARY KEY CHECK (trim(operation_name) <> ''),
+    schema_version TEXT NOT NULL,
+    action_class TEXT NOT NULL CHECK (
+        action_class IN ('observe', 'analyse', 'propose', 'execute')
+    ),
+    autonomous INTEGER NOT NULL CHECK (autonomous IN (0, 1)),
+    registered_by_principal TEXT NOT NULL CHECK (
+        registered_by_principal IN ('operator', 'codex_development_harness')
+    ),
+    registered_at TEXT NOT NULL,
+    description TEXT NOT NULL CHECK (trim(description) <> ''),
+    canonical_json TEXT NOT NULL CHECK (
+        json_valid(canonical_json) AND json_type(canonical_json) = 'object'
+    ),
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    CHECK (autonomous = 0 OR action_class = 'execute')
+);
+
+CREATE TRIGGER operation_definitions_immutable
+BEFORE UPDATE ON operation_definitions
+BEGIN
+    SELECT RAISE(ABORT, 'operation definitions are immutable');
+END;
+
+CREATE TRIGGER operation_definitions_no_delete
+BEFORE DELETE ON operation_definitions
+BEGIN
+    SELECT RAISE(ABORT, 'operation definitions cannot be deleted');
+END;
+
 CREATE TABLE sessions (
     session_id TEXT PRIMARY KEY,
     contract_version TEXT NOT NULL,
@@ -118,10 +153,99 @@ CREATE TABLE session_participants (
     FOREIGN KEY (entity_id) REFERENCES entities(entity_id) ON DELETE RESTRICT
 );
 
-CREATE TRIGGER sessions_immutable
-BEFORE UPDATE ON sessions
+CREATE TABLE session_state_transitions (
+    transition_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    sequence_number INTEGER NOT NULL CHECK (sequence_number >= 0),
+    from_status TEXT,
+    to_status TEXT NOT NULL CHECK (
+        to_status IN ('open', 'paused', 'closed', 'aborted')
+    ),
+    reason_code TEXT NOT NULL CHECK (trim(reason_code) <> ''),
+    changed_at TEXT NOT NULL,
+    changed_by_principal TEXT NOT NULL CHECK (
+        changed_by_principal IN ('operator', 'codex_development_harness')
+    ),
+    UNIQUE (session_id, sequence_number),
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE RESTRICT,
+    CHECK (
+        (sequence_number = 0 AND from_status IS NULL AND to_status = 'open')
+        OR
+        (sequence_number > 0 AND (
+            (from_status = 'open' AND to_status IN ('paused', 'closed', 'aborted'))
+            OR
+            (from_status = 'paused' AND to_status IN ('open', 'closed', 'aborted'))
+        ))
+    )
+);
+
+CREATE TRIGGER sessions_core_immutable
+BEFORE UPDATE OF session_id, contract_version, session_purpose, opened_at,
+                 active_project_scope, retention_disposition,
+                 created_by_entity_id
+ON sessions
 BEGIN
-    SELECT RAISE(ABORT, 'session contracts are immutable');
+    SELECT RAISE(ABORT, 'session identity is immutable');
+END;
+
+CREATE TRIGGER sessions_status_requires_transition
+BEFORE UPDATE OF session_status, closed_at, canonical_json, content_hash
+ON sessions
+WHEN NEW.session_status <> OLD.session_status
+AND NOT EXISTS (
+    SELECT 1
+    FROM session_state_transitions AS transition
+    WHERE transition.session_id = OLD.session_id
+      AND transition.sequence_number = (
+          SELECT MAX(sequence_number)
+          FROM session_state_transitions
+          WHERE session_id = OLD.session_id
+      )
+      AND transition.from_status = OLD.session_status
+      AND transition.to_status = NEW.session_status
+)
+BEGIN
+    SELECT RAISE(ABORT, 'session status change requires a recorded transition');
+END;
+
+CREATE TRIGGER session_state_transitions_validate_current_state
+BEFORE INSERT ON session_state_transitions
+WHEN (
+    NEW.sequence_number = 0
+    AND (
+        (SELECT session_status FROM sessions WHERE session_id = NEW.session_id) <> 'open'
+        OR EXISTS (
+            SELECT 1 FROM session_state_transitions
+            WHERE session_id = NEW.session_id
+        )
+    )
+)
+OR (
+    NEW.sequence_number > 0
+    AND (
+        (SELECT session_status FROM sessions WHERE session_id = NEW.session_id)
+            <> NEW.from_status
+        OR NEW.sequence_number <> COALESCE((
+            SELECT MAX(sequence_number) + 1
+            FROM session_state_transitions
+            WHERE session_id = NEW.session_id
+        ), 0)
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'session transition does not match current state');
+END;
+
+CREATE TRIGGER session_state_transitions_immutable
+BEFORE UPDATE ON session_state_transitions
+BEGIN
+    SELECT RAISE(ABORT, 'session transitions are immutable');
+END;
+
+CREATE TRIGGER session_state_transitions_no_delete
+BEFORE DELETE ON session_state_transitions
+BEGIN
+    SELECT RAISE(ABORT, 'session transitions cannot be deleted');
 END;
 
 CREATE TRIGGER sessions_no_delete
@@ -281,6 +405,168 @@ BEGIN
     SELECT RAISE(ABORT, 'authority evidence relationships cannot be deleted');
 END;
 
+CREATE TABLE authority_revocations (
+    authority_record_id TEXT PRIMARY KEY,
+    revoked_at TEXT NOT NULL,
+    revoked_by_entity_id TEXT NOT NULL,
+    reason TEXT NOT NULL CHECK (trim(reason) <> ''),
+    registered_by_principal TEXT NOT NULL CHECK (
+        registered_by_principal IN ('operator', 'codex_development_harness')
+    ),
+    provenance_json TEXT NOT NULL CHECK (
+        json_valid(provenance_json) AND json_type(provenance_json) = 'object'
+    ),
+    canonical_json TEXT NOT NULL CHECK (
+        json_valid(canonical_json) AND json_type(canonical_json) = 'object'
+    ),
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    FOREIGN KEY (authority_record_id)
+        REFERENCES authority_records(authority_record_id) ON DELETE RESTRICT,
+    FOREIGN KEY (revoked_by_entity_id)
+        REFERENCES entities(entity_id) ON DELETE RESTRICT
+);
+
+CREATE TRIGGER authority_revocations_immutable
+BEFORE UPDATE ON authority_revocations
+BEGIN
+    SELECT RAISE(ABORT, 'authority revocations are immutable');
+END;
+
+CREATE TRIGGER authority_revocations_no_delete
+BEFORE DELETE ON authority_revocations
+BEGIN
+    SELECT RAISE(ABORT, 'authority revocations cannot be deleted');
+END;
+
+CREATE TABLE human_approvals (
+    human_approval_id TEXT PRIMARY KEY,
+    schema_version TEXT NOT NULL,
+    requested_operation TEXT NOT NULL,
+    subject_principal TEXT NOT NULL CHECK (
+        subject_principal IN (
+            'apprentice', 'operator', 'codex_development_harness',
+            'experimental_harness'
+        )
+    ),
+    permissions_json TEXT NOT NULL CHECK (
+        json_valid(permissions_json) AND json_type(permissions_json) = 'array'
+    ),
+    project_scope_id TEXT NOT NULL,
+    scope_id TEXT NOT NULL,
+    task_id TEXT,
+    approved_by_entity_id TEXT NOT NULL,
+    approved_at TEXT NOT NULL,
+    expires_at TEXT,
+    conditions_json TEXT NOT NULL CHECK (
+        json_valid(conditions_json) AND json_type(conditions_json) = 'array'
+    ),
+    single_use INTEGER NOT NULL CHECK (single_use IN (0, 1)),
+    consumed_at TEXT,
+    consumed_by_task_id TEXT,
+    consumed_by_decision_id TEXT,
+    evidence_ids_json TEXT NOT NULL CHECK (
+        json_valid(evidence_ids_json) AND json_type(evidence_ids_json) = 'array'
+    ),
+    provenance_json TEXT NOT NULL CHECK (
+        json_valid(provenance_json) AND json_type(provenance_json) = 'object'
+    ),
+    registered_by_principal TEXT NOT NULL CHECK (
+        registered_by_principal IN ('operator', 'codex_development_harness')
+    ),
+    registered_at TEXT NOT NULL,
+    canonical_json TEXT NOT NULL CHECK (
+        json_valid(canonical_json) AND json_type(canonical_json) = 'object'
+    ),
+    content_hash TEXT NOT NULL CHECK (
+        length(content_hash) = 64
+        AND content_hash NOT GLOB '*[^0-9a-f]*'
+    ),
+    FOREIGN KEY (project_scope_id)
+        REFERENCES scopes(scope_id) ON DELETE RESTRICT,
+    FOREIGN KEY (scope_id) REFERENCES scopes(scope_id) ON DELETE RESTRICT,
+    FOREIGN KEY (approved_by_entity_id)
+        REFERENCES entities(entity_id) ON DELETE RESTRICT,
+    CHECK (expires_at IS NULL OR expires_at >= approved_at),
+    CHECK (
+        (single_use = 0 AND consumed_at IS NULL
+            AND consumed_by_task_id IS NULL AND consumed_by_decision_id IS NULL)
+        OR
+        (single_use = 1 AND (
+            (consumed_at IS NULL AND consumed_by_task_id IS NULL
+                AND consumed_by_decision_id IS NULL)
+            OR
+            (consumed_at IS NOT NULL AND consumed_by_task_id IS NOT NULL
+                AND consumed_by_decision_id IS NOT NULL)
+        ))
+    ),
+    CHECK (
+        subject_principal <> 'apprentice'
+        OR (
+            permissions_json NOT LIKE '%"propose"%'
+            AND permissions_json NOT LIKE '%"execute"%'
+        )
+    )
+);
+
+CREATE TABLE human_approval_evidence (
+    human_approval_id TEXT NOT NULL,
+    evidence_id TEXT NOT NULL,
+    evidence_order INTEGER NOT NULL CHECK (evidence_order >= 0),
+    PRIMARY KEY (human_approval_id, evidence_id),
+    UNIQUE (human_approval_id, evidence_order),
+    FOREIGN KEY (human_approval_id)
+        REFERENCES human_approvals(human_approval_id) ON DELETE RESTRICT,
+    FOREIGN KEY (evidence_id)
+        REFERENCES evidence_items(evidence_id) ON DELETE RESTRICT
+);
+
+CREATE TRIGGER human_approval_evidence_validate
+BEFORE INSERT ON human_approval_evidence
+WHEN NOT EXISTS (
+    SELECT 1 FROM evidence_items
+    WHERE evidence_id = NEW.evidence_id
+      AND integrity_status = 'valid'
+      AND evidence_kind NOT IN (
+          'model_output', 'controlled_prompt', 'controlled_output'
+      )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'human approval evidence must be valid and non-model');
+END;
+
+CREATE TRIGGER human_approvals_core_immutable
+BEFORE UPDATE OF human_approval_id, schema_version, requested_operation,
+                 subject_principal, permissions_json, project_scope_id,
+                 scope_id, task_id, approved_by_entity_id, approved_at,
+                 expires_at, conditions_json, single_use, evidence_ids_json,
+                 provenance_json, registered_by_principal, registered_at,
+                 canonical_json, content_hash
+ON human_approvals
+BEGIN
+    SELECT RAISE(ABORT, 'human approval identity is immutable');
+END;
+
+CREATE TRIGGER human_approvals_no_delete
+BEFORE DELETE ON human_approvals
+BEGIN
+    SELECT RAISE(ABORT, 'human approvals cannot be deleted');
+END;
+
+CREATE TRIGGER human_approval_evidence_immutable
+BEFORE UPDATE ON human_approval_evidence
+BEGIN
+    SELECT RAISE(ABORT, 'human approval evidence is immutable');
+END;
+
+CREATE TRIGGER human_approval_evidence_no_delete
+BEFORE DELETE ON human_approval_evidence
+BEGIN
+    SELECT RAISE(ABORT, 'human approval evidence cannot be deleted');
+END;
+
 CREATE TABLE governed_runtime_transactions (
     transaction_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL UNIQUE,
@@ -342,6 +628,10 @@ CREATE TABLE tasks (
     claimed_authority_ids_json TEXT NOT NULL CHECK (
         json_valid(claimed_authority_ids_json)
         AND json_type(claimed_authority_ids_json) = 'array'
+    ),
+    claimed_human_approval_ids_json TEXT NOT NULL CHECK (
+        json_valid(claimed_human_approval_ids_json)
+        AND json_type(claimed_human_approval_ids_json) = 'array'
     ),
     allowed_sources_json TEXT NOT NULL CHECK (
         json_valid(allowed_sources_json)
@@ -409,10 +699,10 @@ ON tasks(project_scope_id, status);
 CREATE TABLE task_state_transitions (
     transition_id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,
-    sequence_number INTEGER NOT NULL CHECK (sequence_number IN (0, 1)),
+    sequence_number INTEGER NOT NULL CHECK (sequence_number >= 0),
     from_status TEXT,
     to_status TEXT NOT NULL CHECK (
-        to_status IN ('pending', 'active', 'stopped')
+        to_status IN ('pending', 'active', 'completed', 'stopped', 'failed')
     ),
     reason_code TEXT NOT NULL CHECK (trim(reason_code) <> ''),
     changed_at TEXT NOT NULL,
@@ -426,8 +716,11 @@ CREATE TABLE task_state_transitions (
     CHECK (
         (sequence_number = 0 AND from_status IS NULL AND to_status = 'pending')
         OR
-        (sequence_number = 1 AND from_status = 'pending'
-            AND to_status IN ('active', 'stopped'))
+        (sequence_number > 0 AND (
+            (from_status = 'pending' AND to_status IN ('active', 'stopped', 'failed'))
+            OR
+            (from_status = 'active' AND to_status IN ('completed', 'stopped', 'failed'))
+        ))
     )
 );
 
@@ -454,6 +747,10 @@ CREATE TABLE governance_decisions (
         requested_action_class IN (
             'observe', 'analyse', 'propose', 'execute', 'ambiguous'
         )
+    ),
+    operation_definition_hash TEXT NOT NULL CHECK (
+        length(operation_definition_hash) = 64
+        AND operation_definition_hash NOT GLOB '*[^0-9a-f]*'
     ),
     permission_profile_id TEXT NOT NULL,
     permission_profile_hash TEXT NOT NULL CHECK (
@@ -487,6 +784,14 @@ CREATE TABLE governance_decisions (
     authority_assessments_json TEXT NOT NULL CHECK (
         json_valid(authority_assessments_json)
         AND json_type(authority_assessments_json) = 'array'
+    ),
+    human_approval_assessments_json TEXT NOT NULL CHECK (
+        json_valid(human_approval_assessments_json)
+        AND json_type(human_approval_assessments_json) = 'array'
+    ),
+    evidence_assessments_json TEXT NOT NULL CHECK (
+        json_valid(evidence_assessments_json)
+        AND json_type(evidence_assessments_json) = 'array'
     ),
     policy_violations_json TEXT NOT NULL CHECK (
         json_valid(policy_violations_json)
@@ -551,7 +856,7 @@ CREATE TABLE governance_decision_authority_inputs (
             'authority_out_of_scope', 'authority_task_mismatch',
             'authority_not_yet_effective', 'authority_expired',
             'authority_issuer_mismatch', 'authority_evidence_missing',
-            'authority_operation_mismatch'
+            'authority_operation_mismatch', 'operation_definition_missing'
         )
     ),
     PRIMARY KEY (governance_decision_id, input_order),
@@ -570,13 +875,54 @@ CREATE TABLE governance_decision_authority_inputs (
     )
 );
 
+CREATE TABLE governance_decision_human_approvals (
+    governance_decision_id TEXT NOT NULL,
+    input_order INTEGER NOT NULL CHECK (input_order >= 0),
+    claimed_human_approval_id TEXT NOT NULL,
+    resolved_human_approval_id TEXT,
+    validation_status TEXT NOT NULL CHECK (
+        validation_status IN (
+            'applicable', 'missing_human_approval',
+            'human_approval_principal_mismatch',
+            'human_approval_project_mismatch',
+            'human_approval_out_of_scope', 'human_approval_task_mismatch',
+            'human_approval_operation_mismatch',
+            'human_approval_permission_mismatch',
+            'human_approval_not_yet_effective', 'human_approval_expired',
+            'human_approval_issuer_mismatch',
+            'human_approval_evidence_missing',
+            'human_approval_already_consumed',
+            'human_approval_conditions_unsupported',
+            'human_approval_condition_unsatisfied',
+            'operation_definition_missing'
+        )
+    ),
+    selected INTEGER NOT NULL CHECK (selected IN (0, 1)),
+    consumed INTEGER NOT NULL CHECK (consumed IN (0, 1)),
+    PRIMARY KEY (governance_decision_id, input_order),
+    UNIQUE (governance_decision_id, claimed_human_approval_id),
+    FOREIGN KEY (governance_decision_id)
+        REFERENCES governance_decisions(governance_decision_id)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (resolved_human_approval_id)
+        REFERENCES human_approvals(human_approval_id) ON DELETE RESTRICT,
+    CHECK (
+        (validation_status = 'missing_human_approval'
+            AND resolved_human_approval_id IS NULL)
+        OR
+        (validation_status <> 'missing_human_approval'
+            AND resolved_human_approval_id = claimed_human_approval_id)
+    ),
+    CHECK (consumed = 0 OR selected = 1)
+);
+
 CREATE TABLE governance_decision_evidence (
     governance_decision_id TEXT NOT NULL,
     input_order INTEGER NOT NULL CHECK (input_order >= 0),
     required_evidence_id TEXT NOT NULL,
     resolved_evidence_id TEXT,
     input_kind TEXT NOT NULL CHECK (
-        input_kind IN ('task', 'authority', 'policy')
+        input_kind IN ('task', 'authority', 'approval', 'policy')
     ),
     validation_status TEXT NOT NULL CHECK (
         validation_status IN ('available', 'missing')
@@ -648,7 +994,8 @@ BEFORE UPDATE OF task_id, session_id, contract_version, objective, task_type,
                  project_scope_id, requested_scope_id, requested_operation,
                  requested_action_class, operation_autonomous,
                  requesting_principal, authority_grant_json,
-                 claimed_authority_ids_json, allowed_sources_json,
+                 claimed_authority_ids_json, claimed_human_approval_ids_json,
+                 allowed_sources_json,
                  prohibited_actions_json, expected_output_schema_id,
                  stop_conditions_json, governing_constraints_json,
                  required_evidence_ids_json, effective_at, provenance_json,
@@ -665,7 +1012,11 @@ AND NOT EXISTS (
     SELECT 1
     FROM task_state_transitions AS transition
     WHERE transition.task_id = OLD.task_id
-      AND transition.sequence_number = 1
+      AND transition.sequence_number = (
+          SELECT MAX(sequence_number)
+          FROM task_state_transitions
+          WHERE task_id = OLD.task_id
+      )
       AND transition.from_status = OLD.status
       AND transition.to_status = NEW.status
 )
@@ -704,16 +1055,15 @@ WHEN (
     )
 )
 OR (
-    NEW.sequence_number = 1
+    NEW.sequence_number > 0
     AND (
-        (SELECT status FROM tasks WHERE task_id = NEW.task_id) <> 'pending'
-        OR NOT EXISTS (
-            SELECT 1 FROM task_state_transitions
+        (SELECT status FROM tasks WHERE task_id = NEW.task_id)
+            <> NEW.from_status
+        OR NEW.sequence_number <> COALESCE((
+            SELECT MAX(sequence_number) + 1
+            FROM task_state_transitions
             WHERE task_id = NEW.task_id
-              AND sequence_number = 0
-              AND from_status IS NULL
-              AND to_status = 'pending'
-        )
+        ), 0)
     )
 )
 BEGIN
@@ -779,6 +1129,18 @@ BEGIN
     SELECT RAISE(ABORT, 'decision authority inputs cannot be deleted');
 END;
 
+CREATE TRIGGER governance_decision_human_approvals_immutable
+BEFORE UPDATE ON governance_decision_human_approvals
+BEGIN
+    SELECT RAISE(ABORT, 'decision human approvals are immutable');
+END;
+
+CREATE TRIGGER governance_decision_human_approvals_no_delete
+BEFORE DELETE ON governance_decision_human_approvals
+BEGIN
+    SELECT RAISE(ABORT, 'decision human approvals cannot be deleted');
+END;
+
 CREATE TRIGGER governance_decision_evidence_immutable
 BEFORE UPDATE ON governance_decision_evidence
 BEGIN
@@ -829,6 +1191,37 @@ BEGIN
     SELECT RAISE(ABORT, 'task-stop events cannot be deleted');
 END;
 
+CREATE TRIGGER human_approvals_consume_once
+BEFORE UPDATE OF consumed_at, consumed_by_task_id, consumed_by_decision_id
+ON human_approvals
+WHEN NOT (
+    OLD.single_use = 1
+    AND OLD.consumed_at IS NULL
+    AND OLD.consumed_by_task_id IS NULL
+    AND OLD.consumed_by_decision_id IS NULL
+    AND NEW.consumed_at IS NOT NULL
+    AND NEW.consumed_by_task_id IS NOT NULL
+    AND NEW.consumed_by_decision_id IS NOT NULL
+    AND EXISTS (
+        SELECT 1
+        FROM governance_decisions AS decision_record
+        JOIN governance_decision_human_approvals AS relationship
+          ON relationship.governance_decision_id =
+             decision_record.governance_decision_id
+        WHERE decision_record.governance_decision_id =
+              NEW.consumed_by_decision_id
+          AND decision_record.task_id = NEW.consumed_by_task_id
+          AND decision_record.decision = 'allow'
+          AND relationship.claimed_human_approval_id =
+              OLD.human_approval_id
+          AND relationship.selected = 1
+          AND relationship.consumed = 1
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'single-use human approval consumption is invalid');
+END;
+
 CREATE TRIGGER governed_runtime_transaction_finalise
 BEFORE UPDATE OF status, completed_at, structured_failure_json, content_hash
 ON governed_runtime_transactions
@@ -842,6 +1235,62 @@ WHEN NOT (
         JOIN governance_decisions AS decision_record
           ON decision_record.task_id = task.task_id
         WHERE task.task_id = OLD.task_id
+          AND (
+              decision_record.operation_definition_hash = (
+                  SELECT content_hash FROM operation_definitions
+                  WHERE operation_name = decision_record.requested_operation
+              )
+              OR (
+                  decision_record.decision = 'stop'
+                  AND decision_record.operation_definition_hash =
+                      '0000000000000000000000000000000000000000000000000000000000000000'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM operation_definitions
+                      WHERE operation_name = decision_record.requested_operation
+                  )
+              )
+          )
+          AND (SELECT COUNT(*) FROM governance_decision_authority_inputs
+               WHERE governance_decision_id = decision_record.governance_decision_id)
+              = json_array_length(decision_record.authority_assessments_json)
+          AND (SELECT COUNT(*) FROM governance_decision_human_approvals
+               WHERE governance_decision_id = decision_record.governance_decision_id)
+              = json_array_length(decision_record.human_approval_assessments_json)
+          AND (SELECT COUNT(*) FROM governance_decision_evidence
+               WHERE governance_decision_id = decision_record.governance_decision_id)
+              = json_array_length(decision_record.evidence_assessments_json)
+          AND (SELECT COUNT(*) FROM governance_decision_rules
+               WHERE governance_decision_id = decision_record.governance_decision_id)
+              = json_array_length(decision_record.governing_rule_ids_json)
+          AND (
+              decision_record.decision <> 'allow'
+              OR decision_record.precedence_authority_class NOT IN (
+                  'nolan_approved', 'nolan_byte_approved'
+              )
+              OR (
+                  SELECT COUNT(*)
+                  FROM governance_decision_human_approvals
+                  WHERE governance_decision_id = decision_record.governance_decision_id
+                    AND selected = 1
+              ) = 1
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM governance_decision_human_approvals AS approval_link
+              JOIN human_approvals AS approval
+                ON approval.human_approval_id =
+                   approval_link.resolved_human_approval_id
+              WHERE approval_link.governance_decision_id =
+                    decision_record.governance_decision_id
+                AND approval_link.selected = 1
+                AND approval.single_use = 1
+                AND (
+                    approval_link.consumed <> 1
+                    OR approval.consumed_by_task_id <> task.task_id
+                    OR approval.consumed_by_decision_id <>
+                       decision_record.governance_decision_id
+                )
+          )
           AND (
               (NEW.status = 'committed'
                   AND task.status = 'active'

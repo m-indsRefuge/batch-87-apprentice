@@ -668,8 +668,26 @@ class IntegrityInspector:
             ),
             ("sessions", "session_id", "canonical_json", "content_hash"),
             (
+                "operation_definitions",
+                "operation_name",
+                "canonical_json",
+                "content_hash",
+            ),
+            (
                 "authority_records",
                 "authority_record_id",
+                "canonical_json",
+                "content_hash",
+            ),
+            (
+                "authority_revocations",
+                "authority_record_id",
+                "canonical_json",
+                "content_hash",
+            ),
+            (
+                "human_approvals",
+                "human_approval_id",
                 "canonical_json",
                 "content_hash",
             ),
@@ -774,6 +792,49 @@ class IntegrityInspector:
                     detail="session creator is not preserved as operator participant",
                 )
 
+        for session_row in connection.execute(
+            "SELECT session_id, session_status FROM sessions ORDER BY session_id"
+        ):
+            transitions = tuple(
+                connection.execute(
+                    """
+                    SELECT sequence_number, from_status, to_status
+                    FROM session_state_transitions
+                    WHERE session_id = ?
+                    ORDER BY sequence_number
+                    """,
+                    (session_row["session_id"],),
+                )
+            )
+            valid = bool(transitions)
+            previous: str | None = None
+            for index, transition in enumerate(transitions):
+                if (
+                    transition["sequence_number"] != index
+                    or transition["from_status"] != previous
+                    or (index == 0 and transition["to_status"] != "open")
+                    or (
+                        index > 0
+                        and (previous, transition["to_status"])
+                        not in {
+                            ("open", "paused"), ("open", "closed"),
+                            ("open", "aborted"), ("paused", "open"),
+                            ("paused", "closed"), ("paused", "aborted"),
+                        }
+                    )
+                ):
+                    valid = False
+                    break
+                previous = transition["to_status"]
+            if not valid or previous != session_row["session_status"]:
+                _finding(
+                    findings, severity="error",
+                    code="session_transition_history_invalid",
+                    table="session_state_transitions",
+                    object_id=session_row["session_id"],
+                    detail="session transition history is not contiguous or does not match current status",
+                )
+
         for row in connection.execute(
             """
             SELECT authority_record_id, evidence_ids_json
@@ -809,6 +870,44 @@ class IntegrityInspector:
                     detail="linked evidence differs from the canonical authority order",
                 )
 
+        for row in connection.execute(
+            "SELECT human_approval_id, evidence_ids_json, single_use, consumed_at, consumed_by_task_id, consumed_by_decision_id FROM human_approvals ORDER BY human_approval_id"
+        ):
+            declared = tuple(parse_json(row["evidence_ids_json"]))
+            linked = tuple(
+                (item["evidence_id"], item["evidence_order"])
+                for item in connection.execute(
+                    "SELECT evidence_id, evidence_order FROM human_approval_evidence WHERE human_approval_id = ? ORDER BY evidence_order",
+                    (row["human_approval_id"],),
+                )
+            )
+            if (
+                tuple(item_id for item_id, _ in linked) != declared
+                or tuple(order for _, order in linked) != tuple(range(len(declared)))
+            ):
+                _finding(
+                    findings, severity="error",
+                    code="human_approval_evidence_relationship_invalid",
+                    table="human_approval_evidence",
+                    object_id=row["human_approval_id"],
+                    detail="linked evidence differs from canonical human approval order",
+                )
+            consumed_fields = (
+                row["consumed_at"], row["consumed_by_task_id"],
+                row["consumed_by_decision_id"],
+            )
+            if (
+                (row["single_use"] == 0 and any(value is not None for value in consumed_fields))
+                or (row["single_use"] == 1 and any(value is not None for value in consumed_fields) and not all(value is not None for value in consumed_fields))
+            ):
+                _finding(
+                    findings, severity="error",
+                    code="human_approval_consumption_invalid",
+                    table="human_approvals",
+                    object_id=row["human_approval_id"],
+                    detail="human approval consumption fields are inconsistent",
+                )
+
         transactions = connection.execute(
             """
             SELECT transaction_record.*, task.status AS task_status,
@@ -819,6 +918,11 @@ class IntegrityInspector:
                    decision.runtime_execution_principal,
                    decision.governing_rule_ids_json,
                    decision.evidence_ids_json,
+                   decision.authority_assessments_json,
+                   decision.human_approval_assessments_json,
+                   decision.evidence_assessments_json,
+                   decision.requested_operation,
+                   decision.operation_definition_hash,
                    profile.content_hash AS stored_profile_hash,
                    stop.stop_event_id, stop.content_hash AS stop_hash
             FROM governed_runtime_transactions AS transaction_record
@@ -851,7 +955,7 @@ class IntegrityInspector:
 
             state_valid = (
                 row["status"] == "committed"
-                and row["task_status"] == "active"
+                and row["task_status"] in {"active", "completed", "failed"}
                 and row["decision"] == "allow"
                 and row["stop_event_id"] is None
             ) or (
@@ -881,31 +985,31 @@ class IntegrityInspector:
                     (row["task_id"],),
                 )
             )
-            expected_terminal = (
-                "active" if row["status"] == "committed" else "stopped"
-            )
-            if (
-                len(transitions) != 2
-                or tuple(
-                    (
-                        transition["sequence_number"],
-                        transition["from_status"],
-                        transition["to_status"],
-                    )
-                    for transition in transitions
-                )
-                != (
-                    (0, None, "pending"),
-                    (1, "pending", expected_terminal),
-                )
-            ):
+            expected_terminal = row["task_status"]
+            valid_transitions = bool(transitions)
+            previous: str | None = None
+            allowed_task_transitions = {
+                (None, "pending"),
+                ("pending", "active"), ("pending", "stopped"),
+                ("pending", "failed"), ("active", "completed"),
+                ("active", "stopped"), ("active", "failed"),
+            }
+            for index, transition in enumerate(transitions):
+                pair = (transition["from_status"], transition["to_status"])
+                if (
+                    transition["sequence_number"] != index
+                    or transition["from_status"] != previous
+                    or pair not in allowed_task_transitions
+                ):
+                    valid_transitions = False
+                    break
+                previous = transition["to_status"]
+            if not valid_transitions or previous != expected_terminal:
                 _finding(
-                    findings,
-                    severity="error",
+                    findings, severity="error",
                     code="task_transition_history_invalid",
-                    table="task_state_transitions",
-                    object_id=row["task_id"],
-                    detail="task does not have the exact two-step I2 transition history",
+                    table="task_state_transitions", object_id=row["task_id"],
+                    detail="task transition history is not contiguous or does not match current status",
                 )
 
             if (
@@ -921,6 +1025,104 @@ class IntegrityInspector:
                     table="governance_decisions",
                     object_id=row["governance_decision_id"],
                     detail="decision input hash does not match its persisted input",
+                )
+
+            operation = connection.execute(
+                "SELECT content_hash FROM operation_definitions WHERE operation_name = ?",
+                (row["requested_operation"],),
+            ).fetchone()
+            operation_valid = (
+                operation is not None
+                and operation["content_hash"] == row["operation_definition_hash"]
+            ) or (
+                operation is None
+                and row["decision"] == "stop"
+                and row["operation_definition_hash"] == "0" * 64
+            )
+            if not operation_valid:
+                _finding(
+                    findings, severity="error",
+                    code="decision_operation_definition_invalid",
+                    table="governance_decisions",
+                    object_id=row["governance_decision_id"],
+                    detail="decision operation definition is missing or hash-mismatched",
+                )
+
+            authority_relationships = [
+                {
+                    "applicable": item["validation_status"] == "applicable",
+                    "authority_class": item["authority_class"],
+                    "claimed_authority_id": item["claimed_authority_id"],
+                    "resolved_record_hash": item["content_hash"],
+                    "result_code": item["validation_status"],
+                }
+                for item in connection.execute(
+                    """
+                    SELECT rel.*, authority.authority_class, authority.content_hash
+                    FROM governance_decision_authority_inputs AS rel
+                    LEFT JOIN authority_records AS authority
+                      ON authority.authority_record_id = rel.resolved_authority_record_id
+                    WHERE rel.governance_decision_id = ? ORDER BY rel.input_order
+                    """,
+                    (row["governance_decision_id"],),
+                )
+            ]
+            if authority_relationships != parse_json(row["authority_assessments_json"]):
+                _finding(
+                    findings, severity="error",
+                    code="decision_authority_relationship_invalid",
+                    table="governance_decision_authority_inputs",
+                    object_id=row["governance_decision_id"],
+                    detail="authority relationships differ from canonical assessments",
+                )
+
+            approval_relationships = [
+                {
+                    "applicable": item["validation_status"] == "applicable",
+                    "claimed_human_approval_id": item["claimed_human_approval_id"],
+                    "consumed": bool(item["consumed"]),
+                    "resolved_record_hash": item["content_hash"],
+                    "selected": bool(item["selected"]),
+                    "result_code": item["validation_status"],
+                }
+                for item in connection.execute(
+                    """
+                    SELECT rel.*, approval.content_hash
+                    FROM governance_decision_human_approvals AS rel
+                    LEFT JOIN human_approvals AS approval
+                      ON approval.human_approval_id = rel.resolved_human_approval_id
+                    WHERE rel.governance_decision_id = ? ORDER BY rel.input_order
+                    """,
+                    (row["governance_decision_id"],),
+                )
+            ]
+            if approval_relationships != parse_json(row["human_approval_assessments_json"]):
+                _finding(
+                    findings, severity="error",
+                    code="decision_human_approval_relationship_invalid",
+                    table="governance_decision_human_approvals",
+                    object_id=row["governance_decision_id"],
+                    detail="human approval relationships differ from canonical assessments",
+                )
+
+            evidence_relationships = [
+                {
+                    "available": item["validation_status"] == "available",
+                    "input_kind": item["input_kind"],
+                    "required_evidence_id": item["required_evidence_id"],
+                }
+                for item in connection.execute(
+                    "SELECT * FROM governance_decision_evidence WHERE governance_decision_id = ? ORDER BY input_order",
+                    (row["governance_decision_id"],),
+                )
+            ]
+            if evidence_relationships != parse_json(row["evidence_assessments_json"]):
+                _finding(
+                    findings, severity="error",
+                    code="decision_evidence_assessment_relationship_invalid",
+                    table="governance_decision_evidence",
+                    object_id=row["governance_decision_id"],
+                    detail="evidence relationships differ from canonical assessments",
                 )
 
             linked_rules = [

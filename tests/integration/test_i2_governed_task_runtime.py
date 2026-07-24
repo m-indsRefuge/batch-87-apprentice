@@ -29,6 +29,7 @@ from tests.support.i2_fixtures import (
     authority,
     build_harness,
     evidence,
+    human_approval,
     task,
     uid,
 )
@@ -116,7 +117,7 @@ def test_apprentice_observe_and_analyse_commit_atomically(
     assert reconstruction.value["decision"] == result.decision.canonical_value()
     assert reconstruction.value["decision"]["provenance"] == {
         "decision_engine": "b87_i2_governance_kernel",
-        "engine_version": "1.0.0",
+        "engine_version": "1.1.0",
         "runtime_execution_principal": "codex_development_harness",
         "runtime_instance_id": harness.runtime_id,
     }
@@ -261,6 +262,7 @@ def test_missing_authority_and_document_text_cannot_self_authorise(
     assert reconstructed["authority_inputs"] == [
         {
             "authority_record": None,
+            "authority_revocation": None,
             "claimed_authority_id": missing_authority_id,
             "validation_status": "missing_authority",
         }
@@ -621,6 +623,16 @@ def test_lower_authority_cannot_override_higher_authority(
         effect=lower_effect,
         issuer_entity_id=None,
     )
+    approval = None
+    approval_ids: tuple[str, ...] = ()
+    if higher_effect == "allow":
+        approval = human_approval(
+            harness,
+            506,
+            evidence_ids=(high_evidence.evidence_id,),
+            task_id=uid(209),
+        )
+        approval_ids = (approval.human_approval_id,)
     contract = task(
         harness,
         209,
@@ -628,6 +640,7 @@ def test_lower_authority_cannot_override_higher_authority(
             lower.authority_record_id,
             higher.authority_record_id,
         ),
+        human_approval_ids=approval_ids,
     )
     harness.runtime.register_authority(
         higher,
@@ -637,6 +650,8 @@ def test_lower_authority_cannot_override_higher_authority(
         lower,
         evidence_items=(low_evidence,),
     )
+    if approval is not None:
+        harness.runtime.register_human_approval(approval)
 
     result = harness.runtime.evaluate(contract)
 
@@ -660,11 +675,6 @@ def test_lower_authority_cannot_override_higher_authority(
             "explicit_review",
             "observe",
             "explicit_human_review_required",
-        ),
-        (
-            "ambiguous",
-            "ambiguous",
-            "ambiguous_operation_requires_review",
         ),
     ],
 )
@@ -838,7 +848,7 @@ def test_model_shaped_payload_cannot_alter_structured_denial(
     )
 
     assert result.decision.outcome == "deny"
-    assert result.decision.precedence_authority_class == "nolan_approved"
+    assert result.decision.precedence_authority_class == "approved_project_policy"
     assert "authoritative_denial" in {
         reason.code for reason in result.decision.reasons
     }
@@ -1203,3 +1213,286 @@ def test_integrity_inspector_detects_i2_hash_and_partial_transaction_corruption(
     assert not report.ok
     assert "task_runtime_hash_mismatch" in codes
     assert "task_runtime_transaction_incomplete" in codes
+
+
+def test_single_use_human_approval_is_consumed_atomically_and_cannot_be_reused(
+    harness: I2Harness,
+) -> None:
+    item = evidence(500, captured_by_entity=harness.operator_id)
+    record = authority(
+        harness,
+        501,
+        evidence_ids=(item.evidence_id,),
+        authority_class="nolan_approved",
+    )
+    approval = human_approval(
+        harness,
+        502,
+        evidence_ids=(item.evidence_id,),
+        single_use=True,
+    )
+    harness.runtime.register_authority(record, evidence_items=(item,))
+    harness.runtime.register_human_approval(approval)
+
+    first = task(
+        harness,
+        503,
+        authority_ids=(record.authority_record_id,),
+        human_approval_ids=(approval.human_approval_id,),
+    )
+    first_result = harness.runtime.evaluate(first)
+    first_reconstruction = harness.runtime.reconstruct(first.task_id).value
+
+    assert first_result.decision.outcome == "allow"
+    assert first_result.decision.human_approval_assessments[0].selected
+    assert first_result.decision.human_approval_assessments[0].consumed
+    assert first_reconstruction["human_approval_inputs"][0]["consumed"] is True
+
+    second = task(
+        harness,
+        504,
+        authority_ids=(record.authority_record_id,),
+        human_approval_ids=(approval.human_approval_id,),
+    )
+    second_result = harness.runtime.evaluate(second)
+
+    assert second_result.decision.outcome == "stop"
+    assert "human_approval_already_consumed" in {
+        reason.code for reason in second_result.decision.reasons
+    }
+    consumed = SqlProbe(harness.config).read(
+        lambda connection: connection.execute(
+            "SELECT consumed_by_task_id, consumed_by_decision_id FROM human_approvals WHERE human_approval_id = ?",
+            (approval.human_approval_id,),
+        ).fetchone()
+    )
+    assert consumed["consumed_by_task_id"] == first.task_id
+    assert consumed["consumed_by_decision_id"] == (
+        first_result.decision.governance_decision_id
+    )
+
+
+def test_registered_operation_definition_overrides_caller_misclassification(
+    harness: I2Harness,
+) -> None:
+    item, record = _valid_inputs(harness)
+    harness.runtime.register_authority(record, evidence_items=(item,))
+    contract = task(
+        harness,
+        505,
+        authority_ids=(record.authority_record_id,),
+        operation_name="execute_fixture",
+        action_class="observe",
+        authority_grant=("observe",),
+    )
+
+    result = harness.runtime.evaluate(contract)
+    reasons = {reason.code for reason in result.decision.reasons}
+
+    assert result.decision.outcome == "stop"
+    assert "operation_classification_mismatch" in reasons
+    assert "task_prohibited_operation" in reasons
+    assert "apprentice_execute_prohibited" in reasons
+    assert not result.decision.apprentice_execute_implication
+
+
+def test_unregistered_operation_persists_a_reconstructable_fail_closed_stop(
+    harness: I2Harness,
+) -> None:
+    item, record = _valid_inputs(harness)
+    harness.runtime.register_authority(record, evidence_items=(item,))
+    contract = task(
+        harness,
+        506,
+        authority_ids=(record.authority_record_id,),
+        operation_name="unregistered_fixture",
+        action_class="observe",
+    )
+
+    result = harness.runtime.evaluate(contract)
+    reconstruction = harness.runtime.reconstruct(contract.task_id).value
+
+    assert result.decision.outcome == "stop"
+    assert "operation_definition_missing" in {
+        reason.code for reason in result.decision.reasons
+    }
+    assert result.decision.operation_definition_hash == "0" * 64
+    assert reconstruction["operation_definition"] is None
+    assert harness.persistence.integrity.inspect().ok
+
+
+def test_missing_decision_relationship_cannot_finalise_transaction(
+    harness: I2Harness,
+) -> None:
+    item, record = _valid_inputs(harness)
+    harness.runtime.register_authority(record, evidence_items=(item,))
+    SqlProbe(harness.config).write(
+        lambda connection: connection.execute(
+            """
+            CREATE TRIGGER test_drop_decision_evidence
+            BEFORE INSERT ON governance_decision_evidence
+            BEGIN
+                SELECT RAISE(IGNORE);
+            END
+            """
+        )
+    )
+    contract = task(
+        harness,
+        507,
+        authority_ids=(record.authority_record_id,),
+        required_evidence_ids=(item.evidence_id,),
+    )
+    before = _counts(harness)
+
+    with pytest.raises(ConflictError, match="integrity constraint"):
+        harness.runtime.evaluate(contract)
+
+    assert _counts(harness) == before
+    with pytest.raises(NotFoundError):
+        harness.runtime.reconstruct(contract.task_id)
+
+
+def test_integrity_and_reconstruction_detect_missing_decision_relationship(
+    harness: I2Harness,
+) -> None:
+    item, record = _valid_inputs(harness)
+    harness.runtime.register_authority(record, evidence_items=(item,))
+    contract = task(
+        harness,
+        508,
+        authority_ids=(record.authority_record_id,),
+        required_evidence_ids=(item.evidence_id,),
+    )
+    result = harness.runtime.evaluate(contract)
+
+    SqlProbe(harness.config).corrupt_after_dropping_triggers(
+        ("governance_decision_evidence_no_delete",),
+        lambda connection: connection.execute(
+            "DELETE FROM governance_decision_evidence WHERE governance_decision_id = ? AND input_order = 0",
+            (result.decision.governance_decision_id,),
+        ),
+    )
+
+    report = harness.persistence.integrity.inspect()
+    assert not report.ok
+    assert "decision_evidence_assessment_relationship_invalid" in {
+        finding.code for finding in report.findings
+    }
+    from batch87_apprentice.common.errors import IntegrityInspectionError
+
+    with pytest.raises(IntegrityInspectionError, match="evidence relationships"):
+        harness.runtime.reconstruct(contract.task_id)
+
+
+def test_authority_revocation_is_append_only_and_fails_closed(
+    harness: I2Harness,
+) -> None:
+    item, record = _valid_inputs(harness)
+    harness.runtime.register_authority(record, evidence_items=(item,))
+    harness.runtime.revoke_authority(
+        record.authority_record_id,
+        revoked_by_entity_id=harness.operator_id,
+        reason="Operator revoked fixture authority.",
+        provenance_json=canonical_json_text({"source": "operator fixture"}),
+    )
+    contract = task(
+        harness,
+        509,
+        authority_ids=(record.authority_record_id,),
+    )
+
+    result = harness.runtime.evaluate(contract)
+
+    assert result.decision.outcome == "stop"
+    assert "authority_revoked" in {
+        reason.code for reason in result.decision.reasons
+    }
+    assert harness.persistence.integrity.inspect().ok
+
+
+def test_session_lifecycle_transitions_remain_governed_and_integrity_clean(
+    harness: I2Harness,
+) -> None:
+    harness.runtime.transition_session(
+        harness.session_id,
+        to_status="paused",
+        reason_code="operator_pause",
+    )
+    harness.runtime.transition_session(
+        harness.session_id,
+        to_status="open",
+        reason_code="operator_resume",
+    )
+    harness.runtime.transition_session(
+        harness.session_id,
+        to_status="closed",
+        reason_code="operator_close",
+    )
+
+    status = SqlProbe(harness.config).read(
+        lambda connection: connection.execute(
+            "SELECT session_status FROM sessions WHERE session_id = ?",
+            (harness.session_id,),
+        ).fetchone()[0]
+    )
+    assert status == "closed"
+    assert harness.persistence.integrity.inspect().ok
+
+
+def test_active_task_can_complete_through_governed_lifecycle_transition(
+    harness: I2Harness,
+) -> None:
+    item, record = _valid_inputs(harness)
+    harness.runtime.register_authority(record, evidence_items=(item,))
+    contract = task(
+        harness,
+        510,
+        authority_ids=(record.authority_record_id,),
+    )
+    harness.runtime.evaluate(contract)
+
+    harness.runtime.transition_task(
+        contract.task_id,
+        to_status="completed",
+        reason_code="analysis_completed",
+    )
+    reconstruction = harness.runtime.reconstruct(contract.task_id).value
+
+    assert reconstruction["task_status"] == "completed"
+    assert reconstruction["transitions"][-1]["from_status"] == "active"
+    assert reconstruction["transitions"][-1]["to_status"] == "completed"
+    assert harness.persistence.integrity.inspect().ok
+
+
+def test_human_approval_conditions_are_explicit_and_fail_closed(
+    harness: I2Harness,
+) -> None:
+    item = evidence(511, captured_by_entity=harness.operator_id)
+    record = authority(
+        harness,
+        512,
+        evidence_ids=(item.evidence_id,),
+        authority_class="nolan_approved",
+    )
+    approval = human_approval(
+        harness,
+        513,
+        evidence_ids=(item.evidence_id,),
+        conditions=("unsupported_free_form_condition",),
+    )
+    harness.runtime.register_authority(record, evidence_items=(item,))
+    harness.runtime.register_human_approval(approval)
+    contract = task(
+        harness,
+        514,
+        authority_ids=(record.authority_record_id,),
+        human_approval_ids=(approval.human_approval_id,),
+    )
+
+    result = harness.runtime.evaluate(contract)
+
+    assert result.decision.outcome == "stop"
+    assert "human_approval_conditions_unsupported" in {
+        reason.code for reason in result.decision.reasons
+    }

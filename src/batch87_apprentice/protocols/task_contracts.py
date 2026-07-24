@@ -58,6 +58,7 @@ _TASK_FIELDS = frozenset(
         "requesting_principal",
         "authority_grant",
         "claimed_authority_ids",
+        "claimed_human_approval_ids",
         "effective_at",
         "governing_constraints",
         "required_evidence_ids",
@@ -285,6 +286,7 @@ class TaskContract:
     requesting_principal: str
     authority_grant: tuple[str, ...]
     claimed_authority_ids: tuple[str, ...]
+    claimed_human_approval_ids: tuple[str, ...]
     effective_at: str
     governing_constraints: tuple[str, ...]
     required_evidence_ids: tuple[str, ...]
@@ -327,6 +329,11 @@ class TaskContract:
         _identifier_tuple(
             self.claimed_authority_ids,
             "claimed_authority_ids",
+            allow_empty=True,
+        )
+        _identifier_tuple(
+            self.claimed_human_approval_ids,
+            "claimed_human_approval_ids",
             allow_empty=True,
         )
         parse_canonical_utc(self.effective_at, field="effective_at")
@@ -400,6 +407,10 @@ class TaskContract:
                 value["claimed_authority_ids"],
                 "claimed_authority_ids",
             ),
+            claimed_human_approval_ids=_mapping_identifier_tuple(
+                value["claimed_human_approval_ids"],
+                "claimed_human_approval_ids",
+            ),
             effective_at=value["effective_at"],
             governing_constraints=_mapping_string_tuple(
                 value["governing_constraints"],
@@ -436,6 +447,9 @@ class TaskContract:
             "allowed_sources": list(self.allowed_sources),
             "authority_grant": list(self.authority_grant),
             "claimed_authority_ids": list(self.claimed_authority_ids),
+            "claimed_human_approval_ids": list(
+                self.claimed_human_approval_ids
+            ),
             "contract_version": self.contract_version,
             "effective_at": self.effective_at,
             "expected_output_schema_id": self.expected_output_schema_id,

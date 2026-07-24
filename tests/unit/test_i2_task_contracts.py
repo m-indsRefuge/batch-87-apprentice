@@ -30,6 +30,7 @@ def valid_mapping() -> dict[str, object]:
         "allowed_sources": ["approved_evidence"],
         "authority_grant": ["observe"],
         "claimed_authority_ids": [uid(10)],
+        "claimed_human_approval_ids": [],
         "contract_version": TASK_CONTRACT_VERSION,
         "effective_at": NOW,
         "expected_output_schema_id": "https://batch87.local/output/test",
@@ -142,6 +143,7 @@ def test_typed_contract_rejects_mutable_sequence_inputs() -> None:
             requesting_principal=contract.requesting_principal,
             authority_grant=["observe"],  # type: ignore[arg-type]
             claimed_authority_ids=contract.claimed_authority_ids,
+            claimed_human_approval_ids=contract.claimed_human_approval_ids,
             effective_at=contract.effective_at,
             governing_constraints=contract.governing_constraints,
             required_evidence_ids=contract.required_evidence_ids,

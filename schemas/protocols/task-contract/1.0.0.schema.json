@@ -31,6 +31,14 @@
       "type": "array",
       "uniqueItems": true
     },
+    "claimed_human_approval_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
     "contract_version": {
       "const": "1.0.0"
     },
@@ -153,6 +161,7 @@
     "requesting_principal",
     "authority_grant",
     "claimed_authority_ids",
+    "claimed_human_approval_ids",
     "effective_at",
     "governing_constraints",
     "required_evidence_ids",

@@ -19,6 +19,8 @@ from batch87_apprentice.common.timestamps import (
 from batch87_apprentice.governance.contracts import (
     AuthorityRecord,
     EvaluationResult,
+    HumanApproval,
+    OperationDefinition,
     active_b87_s1_permission_profile,
     active_governance_rules,
 )
@@ -119,11 +121,117 @@ class GovernedTaskRuntime:
         return self._infrastructure_principal
 
     def open_session(self, session: SessionContract) -> str:
-        """Persist an exact immutable session contract."""
+        """Persist an exact session contract and its initial transition."""
 
         if not isinstance(session, SessionContract):
             raise TypeError("session must be a validated SessionContract")
-        return self._store.open_session(session)
+        if session.status != "open":
+            raise ValidationError("new sessions must begin in open state")
+        transition_id = self._identifier_factory()
+        validate_identifier(transition_id, field="session_transition_id")
+        return self._store.open_session(
+            session,
+            initial_transition_id=transition_id,
+            changed_by_principal=self._infrastructure_principal,
+        )
+
+    def register_operation_definition(
+        self,
+        definition: OperationDefinition,
+    ) -> str:
+        """Register deterministic operation classification outside task input."""
+
+        if not isinstance(definition, OperationDefinition):
+            raise TypeError("definition must be an OperationDefinition")
+        if definition.registered_by_principal != self._infrastructure_principal:
+            raise ValidationError(
+                "operation registrar does not match runtime infrastructure principal"
+            )
+        return self._store.register_operation_definition(definition)
+
+    def register_human_approval(
+        self,
+        approval: HumanApproval,
+        *,
+        evidence_items: tuple[EvidenceItem, ...] = (),
+    ) -> str:
+        """Register explicit scoped approval before a task claims it."""
+
+        if not isinstance(approval, HumanApproval):
+            raise TypeError("approval must be a HumanApproval")
+        if approval.registered_by_principal != self._infrastructure_principal:
+            raise ValidationError(
+                "approval registrar does not match runtime infrastructure principal"
+            )
+        if not isinstance(evidence_items, tuple):
+            raise TypeError("evidence_items must be an immutable tuple")
+        if any(not isinstance(item, EvidenceItem) for item in evidence_items):
+            raise TypeError("evidence_items contains an invalid value")
+        return self._store.register_human_approval(approval, evidence_items)
+
+    def revoke_authority(
+        self,
+        authority_record_id: str,
+        *,
+        revoked_by_entity_id: str,
+        reason: str,
+        provenance_json: str,
+    ) -> str:
+        """Persist an append-only authority revocation."""
+
+        revoked_at = self._clock()
+        parse_canonical_utc(revoked_at, field="revocation clock")
+        return self._store.revoke_authority(
+            authority_record_id=authority_record_id,
+            revoked_at=revoked_at,
+            revoked_by_entity_id=revoked_by_entity_id,
+            reason=reason,
+            registered_by_principal=self._infrastructure_principal,
+            provenance_json=provenance_json,
+        )
+
+    def transition_session(
+        self,
+        session_id: str,
+        *,
+        to_status: str,
+        reason_code: str,
+    ) -> str:
+        """Apply one append-only governed session-state transition."""
+
+        transition_id = self._identifier_factory()
+        validate_identifier(transition_id, field="session_transition_id")
+        changed_at = self._clock()
+        parse_canonical_utc(changed_at, field="session transition clock")
+        return self._store.transition_session(
+            session_id=session_id,
+            to_status=to_status,
+            transition_id=transition_id,
+            changed_at=changed_at,
+            changed_by_principal=self._infrastructure_principal,
+            reason_code=reason_code,
+        )
+
+    def transition_task(
+        self,
+        task_id: str,
+        *,
+        to_status: str,
+        reason_code: str,
+    ) -> str:
+        """Complete or fail one active task through an append-only transition."""
+
+        transition_id = self._identifier_factory()
+        validate_identifier(transition_id, field="task_transition_id")
+        changed_at = self._clock()
+        parse_canonical_utc(changed_at, field="task transition clock")
+        return self._store.transition_task(
+            task_id=task_id,
+            to_status=to_status,
+            transition_id=transition_id,
+            changed_at=changed_at,
+            reason_code=reason_code,
+        )
 
     def register_authority(
         self,
