@@ -4,7 +4,11 @@ from pathlib import Path
 
 from batch87_apprentice.common.canonical_json import canonical_json_text
 from batch87_apprentice.persistence.config import DatabaseConfig
-from batch87_apprentice.persistence.contracts import EvidenceItem, ReferenceAnchor
+from batch87_apprentice.persistence.contracts import (
+    EvidenceItem,
+    EvidenceLink,
+    ReferenceAnchor,
+)
 from batch87_apprentice.persistence.migrations import (
     MigrationRunner,
     default_migrations_path,
@@ -116,6 +120,51 @@ def test_noninline_metadata_is_audited_as_unavailable(tmp_path: Path) -> None:
     assert report.ok
     assert report.warning_count == 1
     assert report.findings[0].code == "evidence_integrity_not_valid"
+
+
+def test_noninline_false_validity_is_reported_after_test_only_corruption(
+    tmp_path: Path,
+) -> None:
+    service = PersistenceService.initialize(
+        DatabaseConfig(tmp_path / "noninline-false-validity.sqlite3")
+    )
+    item = EvidenceItem(
+        evidence_id=uid(13),
+        evidence_kind="document",
+        storage_kind="repository_reference",
+        captured_at=NOW,
+        integrity_status="unavailable",
+        redaction_status="none",
+        sensitivity_class="internal",
+        privacy_class="none",
+        storage_location="docs/governance.md",
+        byte_length=87,
+        content_hash="0" * 64,
+    )
+    service.evidence.create(item)
+    SqlProbe(service.config).corrupt_after_dropping_triggers(
+        ("evidence_noninline_integrity_transition_guard",),
+        lambda connection: connection.execute(
+            """
+            UPDATE evidence_items
+            SET integrity_status = 'valid'
+            WHERE evidence_id = ?
+            """,
+            (item.evidence_id,),
+        ),
+    )
+
+    report = service.integrity.inspect()
+    finding = next(
+        finding
+        for finding in report.findings
+        if finding.code == "noninline_evidence_false_validity"
+    )
+
+    assert not report.ok
+    assert finding.severity == "error"
+    assert finding.object_id == item.evidence_id
+    assert "without independently verified exact bytes" in finding.detail
 
 
 def test_integrity_inspector_exposes_hash_and_lifecycle_mismatches(
@@ -233,6 +282,15 @@ def test_controlled_link_corruption_is_reported_by_role(tmp_path: Path) -> None:
         anchors=anchors,
         evidence_items=evidence,
     )
+    ordinary = ordinary_record(140, scope.scope_id)
+    service.records.create(ordinary)
+    service.evidence.link(
+        EvidenceLink(
+            record_id=envelope.record_id,
+            evidence_id=payload.raw_prompt_evidence_id,
+            relationship="does_not_establish",
+        )
+    )
 
     def corrupt_links(connection) -> None:
         connection.execute(
@@ -252,11 +310,25 @@ def test_controlled_link_corruption_is_reported_by_role(tmp_path: Path) -> None:
             """,
             (envelope.record_id, payload.raw_output_evidence_id),
         )
+        connection.execute(
+            """
+            UPDATE record_evidence_links
+            SET record_id = ?
+            WHERE record_id = ? AND evidence_id = ?
+              AND relationship = 'does_not_establish'
+            """,
+            (
+                ordinary.record_id,
+                envelope.record_id,
+                payload.raw_prompt_evidence_id,
+            ),
+        )
 
     SqlProbe(service.config).corrupt_after_dropping_triggers(
         (
             "controlled_resilience_mandatory_link_no_delete",
             "controlled_resilience_mandatory_link_no_update",
+            "controlled_resilience_evidence_link_update_isolation",
         ),
         corrupt_links,
     )
@@ -269,6 +341,7 @@ def test_controlled_link_corruption_is_reported_by_role(tmp_path: Path) -> None:
         "controlled_prompt_link_missing",
         "controlled_output_link_missing",
         "controlled_output_link_invalid",
+        "controlled_evidence_link_contamination",
     } <= codes
 
 

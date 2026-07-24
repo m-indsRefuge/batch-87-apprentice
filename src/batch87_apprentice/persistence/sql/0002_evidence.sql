@@ -99,6 +99,23 @@ BEGIN
     );
 END;
 
+CREATE TRIGGER evidence_noninline_integrity_transition_guard
+BEFORE UPDATE OF integrity_status ON evidence_items
+WHEN NEW.storage_kind <> 'inline_text'
+AND (
+    NEW.integrity_status = 'valid'
+    OR (
+        OLD.integrity_status = 'mismatch'
+        AND NEW.integrity_status <> 'mismatch'
+    )
+)
+BEGIN
+    SELECT RAISE(
+        ABORT,
+        'metadata-only non-inline evidence cannot claim or regain verified integrity'
+    );
+END;
+
 CREATE TRIGGER evidence_inline_requires_inline_storage
 BEFORE INSERT ON evidence_inline_text
 WHEN (

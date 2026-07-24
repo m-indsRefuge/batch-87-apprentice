@@ -238,6 +238,32 @@ BEGIN
     SELECT RAISE(ABORT, 'controlled evidence link would weaken isolation');
 END;
 
+CREATE TRIGGER controlled_resilience_evidence_link_update_isolation
+BEFORE UPDATE OF record_id, evidence_id, relationship ON record_evidence_links
+WHEN EXISTS (
+    SELECT 1
+    FROM controlled_resilience_evidence
+    WHERE (
+        raw_prompt_evidence_id = NEW.evidence_id
+        AND (
+            record_id <> NEW.record_id
+            OR NEW.relationship NOT IN (
+                'evaluated_against', 'does_not_establish'
+            )
+        )
+    )
+    OR (
+        raw_output_evidence_id = NEW.evidence_id
+        AND (
+            record_id <> NEW.record_id
+            OR NEW.relationship NOT IN ('produced_as', 'does_not_establish')
+        )
+    )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'controlled evidence link would weaken isolation');
+END;
+
 CREATE TRIGGER controlled_resilience_mandatory_link_no_update
 BEFORE UPDATE OF record_id, evidence_id, relationship ON record_evidence_links
 WHEN EXISTS (

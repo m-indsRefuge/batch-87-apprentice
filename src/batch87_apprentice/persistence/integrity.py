@@ -242,6 +242,21 @@ class IntegrityInspector:
                     object_id=evidence_id,
                     detail="inline_text metadata has no inline content row",
                 )
+            if (
+                row["storage_kind"] != "inline_text"
+                and row["integrity_status"] == "valid"
+            ):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="noninline_evidence_false_validity",
+                    table="evidence_items",
+                    object_id=evidence_id,
+                    detail=(
+                        "metadata-only evidence claims verified integrity without "
+                        "independently verified exact bytes"
+                    ),
+                )
             if row["integrity_status"] != "valid":
                 _finding(
                     findings,

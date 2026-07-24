@@ -289,7 +289,7 @@ def test_inline_evidence_preserves_exact_hash_and_orphan_links_fail(
         )
 
 
-def test_noninline_metadata_cannot_claim_verified_integrity(
+def test_noninline_metadata_integrity_is_fail_closed_on_insert_and_update(
     service: PersistenceService,
 ) -> None:
     with pytest.raises(ValidationError, match="metadata-only non-inline"):
@@ -340,6 +340,46 @@ def test_noninline_metadata_cannot_claim_verified_integrity(
     service.evidence.create(item)
 
     assert service.evidence.get(item.evidence_id)["integrity_status"] == "unavailable"
+    probe = SqlProbe(service.config)
+
+    with pytest.raises(ConflictError):
+        probe.write(
+            lambda connection: connection.execute(
+                """
+                UPDATE evidence_items
+                SET integrity_status = 'valid'
+                WHERE evidence_id = ?
+                """,
+                (item.evidence_id,),
+            )
+        )
+    assert service.evidence.get(item.evidence_id)["integrity_status"] == "unavailable"
+
+    probe.write(
+        lambda connection: connection.execute(
+            """
+            UPDATE evidence_items
+            SET integrity_status = 'mismatch'
+            WHERE evidence_id = ?
+            """,
+            (item.evidence_id,),
+        )
+    )
+    assert service.evidence.get(item.evidence_id)["integrity_status"] == "mismatch"
+
+    for prohibited_status in ("unavailable", "valid"):
+        with pytest.raises(ConflictError):
+            probe.write(
+                lambda connection, status=prohibited_status: connection.execute(
+                    """
+                    UPDATE evidence_items
+                    SET integrity_status = ?
+                    WHERE evidence_id = ?
+                    """,
+                    (status, item.evidence_id),
+                )
+            )
+    assert service.evidence.get(item.evidence_id)["integrity_status"] == "mismatch"
 
 
 def test_anchor_registration_hash_kind_stability_and_scope_fk(
@@ -555,6 +595,18 @@ def test_mandatory_controlled_links_are_immutable_but_ordinary_links_are_governa
         probe.write(
             lambda connection: connection.execute(
                 """
+                UPDATE record_evidence_links
+                SET relationship = 'does_not_establish'
+                WHERE record_id = ? AND evidence_id = ?
+                  AND relationship = 'produced_as'
+                """,
+                (envelope.record_id, payload.raw_output_evidence_id),
+            )
+        )
+    with pytest.raises(ConflictError):
+        probe.write(
+            lambda connection: connection.execute(
+                """
                 DELETE FROM record_evidence_links
                 WHERE record_id = ? AND evidence_id = ?
                   AND relationship = 'produced_as'
@@ -581,7 +633,7 @@ def test_mandatory_controlled_links_are_immutable_but_ordinary_links_are_governa
         )
     )
 
-    def govern_ordinary_link(connection) -> None:
+    def update_ordinary_link(connection) -> None:
         connection.execute(
             """
             UPDATE record_evidence_links
@@ -591,7 +643,20 @@ def test_mandatory_controlled_links_are_immutable_but_ordinary_links_are_governa
             """,
             (ordinary.record_id, ordinary_evidence.evidence_id),
         )
-        connection.execute(
+
+    probe.write(update_ordinary_link)
+    updated_relationship = probe.read(
+        lambda connection: connection.execute(
+            """
+            SELECT relationship FROM record_evidence_links
+            WHERE record_id = ? AND evidence_id = ?
+            """,
+            (ordinary.record_id, ordinary_evidence.evidence_id),
+        ).fetchone()[0]
+    )
+    assert updated_relationship == "contextualises"
+    probe.write(
+        lambda connection: connection.execute(
             """
             DELETE FROM record_evidence_links
             WHERE record_id = ? AND evidence_id = ?
@@ -599,8 +664,7 @@ def test_mandatory_controlled_links_are_immutable_but_ordinary_links_are_governa
             """,
             (ordinary.record_id, ordinary_evidence.evidence_id),
         )
-
-    probe.write(govern_ordinary_link)
+    )
     remaining = probe.read(
         lambda connection: connection.execute(
             """
@@ -611,6 +675,179 @@ def test_mandatory_controlled_links_are_immutable_but_ordinary_links_are_governa
         ).fetchone()[0]
     )
     assert remaining == 0
+
+
+def test_controlled_evidence_link_updates_validate_the_complete_new_row(
+    service: PersistenceService,
+) -> None:
+    scope = project_scope()
+    service.scopes.create(scope)
+    envelope, payload, anchors, evidence = controlled_components(
+        scope_id=scope.scope_id,
+        base=170,
+    )
+    service.controlled_resilience.create(
+        envelope,
+        payload,
+        anchors=anchors,
+        evidence_items=evidence,
+    )
+    ordinary = ordinary_record(180, scope.scope_id)
+    ordinary_evidence = EvidenceItem.inline_text(
+        evidence_id=uid(181),
+        evidence_kind="document",
+        content="ordinary update source",
+        captured_at=NOW,
+        sensitivity_class="internal",
+    )
+    service.records.create(ordinary)
+    service.evidence.create(ordinary_evidence)
+    service.evidence.link(
+        EvidenceLink(
+            record_id=ordinary.record_id,
+            evidence_id=ordinary_evidence.evidence_id,
+            relationship="supports",
+        )
+    )
+    for evidence_id in (
+        payload.raw_prompt_evidence_id,
+        payload.raw_output_evidence_id,
+    ):
+        service.evidence.link(
+            EvidenceLink(
+                record_id=envelope.record_id,
+                evidence_id=evidence_id,
+                relationship="does_not_establish",
+            )
+        )
+    probe = SqlProbe(service.config)
+
+    for controlled_evidence_id in (
+        payload.raw_prompt_evidence_id,
+        payload.raw_output_evidence_id,
+    ):
+        with pytest.raises(ConflictError):
+            probe.write(
+                lambda connection, evidence_id=controlled_evidence_id: (
+                    connection.execute(
+                        """
+                        UPDATE record_evidence_links
+                        SET evidence_id = ?
+                        WHERE record_id = ? AND evidence_id = ?
+                          AND relationship = 'supports'
+                        """,
+                        (
+                            evidence_id,
+                            ordinary.record_id,
+                            ordinary_evidence.evidence_id,
+                        ),
+                    )
+                )
+            )
+        original = probe.read(
+            lambda connection: connection.execute(
+                """
+                SELECT evidence_id, relationship
+                FROM record_evidence_links
+                WHERE record_id = ?
+                """,
+                (ordinary.record_id,),
+            ).fetchone()
+        )
+        assert tuple(original) == (ordinary_evidence.evidence_id, "supports")
+
+    for controlled_evidence_id in (
+        payload.raw_prompt_evidence_id,
+        payload.raw_output_evidence_id,
+    ):
+        with pytest.raises(ConflictError):
+            probe.write(
+                lambda connection, evidence_id=controlled_evidence_id: (
+                    connection.execute(
+                        """
+                        UPDATE record_evidence_links
+                        SET record_id = ?
+                        WHERE record_id = ? AND evidence_id = ?
+                          AND relationship = 'does_not_establish'
+                        """,
+                        (
+                            ordinary.record_id,
+                            envelope.record_id,
+                            evidence_id,
+                        ),
+                    )
+                )
+            )
+        original_record_id = probe.read(
+            lambda connection, evidence_id=controlled_evidence_id: (
+                connection.execute(
+                    """
+                    SELECT record_id
+                    FROM record_evidence_links
+                    WHERE evidence_id = ?
+                      AND relationship = 'does_not_establish'
+                    """,
+                    (evidence_id,),
+                ).fetchone()[0]
+            )
+        )
+        assert original_record_id == envelope.record_id
+
+    for invalid_relationship in (
+        "supports",
+        "derived_from",
+        "contextualises",
+        "contradicts",
+    ):
+        with pytest.raises(ConflictError):
+            probe.write(
+                lambda connection, relationship=invalid_relationship: (
+                    connection.execute(
+                        """
+                        UPDATE record_evidence_links
+                        SET relationship = ?
+                        WHERE record_id = ? AND evidence_id = ?
+                          AND relationship = 'does_not_establish'
+                        """,
+                        (
+                            relationship,
+                            envelope.record_id,
+                            payload.raw_prompt_evidence_id,
+                        ),
+                    )
+                )
+            )
+    with pytest.raises(ConflictError):
+        probe.write(
+            lambda connection: connection.execute(
+                """
+                UPDATE record_evidence_links
+                SET relationship = 'supports'
+                WHERE record_id = ? AND evidence_id = ?
+                  AND relationship = 'does_not_establish'
+                """,
+                (envelope.record_id, payload.raw_output_evidence_id),
+            )
+        )
+
+    preserved = probe.read(
+        lambda connection: {
+            (row["evidence_id"], row["relationship"])
+            for row in connection.execute(
+                """
+                SELECT evidence_id, relationship
+                FROM record_evidence_links
+                WHERE record_id = ?
+                  AND relationship = 'does_not_establish'
+                """,
+                (envelope.record_id,),
+            )
+        }
+    )
+    assert preserved == {
+        (payload.raw_prompt_evidence_id, "does_not_establish"),
+        (payload.raw_output_evidence_id, "does_not_establish"),
+    }
 
 
 @pytest.mark.parametrize("missing_index", range(4))
