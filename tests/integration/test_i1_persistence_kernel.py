@@ -170,6 +170,7 @@ def test_default_migrations_apply_repeatedly_with_required_schema(
         "0001_system_entities_records.sql",
         "0002_evidence.sql",
         "0003_controlled_resilience.sql",
+        "0004_governed_task_runtime.sql",
     ]
     assert first == second
     tables = SqlProbe(config).read(
@@ -1189,7 +1190,7 @@ def test_later_claim_semantics_are_additive_without_rewriting_i1(
         "registered"
     )
 
-    (migration_directory / "0004_later_claim_probe.sql").write_text(
+    (migration_directory / "0005_later_claim_probe.sql").write_text(
         """
         CREATE TABLE later_claim_probe (
             reference_id TEXT NOT NULL,
@@ -1229,7 +1230,7 @@ def test_later_claim_semantics_are_additive_without_rewriting_i1(
         encoding="utf-8",
         newline="\n",
     )
-    assert runner.discover()[:3] == discovered_before
+    assert runner.discover()[:4] == discovered_before
     runner.apply_all()
 
     def invalid_owner_then_claim(connection) -> None:
@@ -1300,4 +1301,4 @@ def test_later_claim_semantics_are_additive_without_rewriting_i1(
     probe.write(claim_probe)
 
     assert service.reference_anchors.get(anchor.reference_id)["lifecycle_state"] == "claimed"
-    assert runner.discover()[:3] == discovered_before[:3]
+    assert runner.discover()[:4] == discovered_before[:4]
