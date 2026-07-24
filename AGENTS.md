@@ -35,20 +35,32 @@ The governing decision is:
 docs/implementation/B87-I1-CONTROLLED-RESILIENCE-REFERENCE-BOUNDARY-DECISION.md
 ```
 
+B87-I2 - Governed Task Runtime is accepted, merged, Byte-reviewed,
+review-directed-repair validated, post-merge validated, and closed. The accepted
+implementation commit is 01f00e419f30db2b5025f9c2e9920506a598c8aa; the
+accepted repair commit is 5da8110b5c844b1a3d419ad3e5dd5a76f774c162; the merge
+commit is 7294efcbe455e6a8b10fc7027a5bcedb12a7001d.
+
+The governing acceptance records are:
+
+    docs/implementation/B87-I2-GOVERNED-TASK-RUNTIME-ACCEPTANCE-DECISION.md
+    docs/implementation/B87-I2-GOVERNED-TASK-RUNTIME-ACCEPTANCE-EVIDENCE.md
+
 The current active implementation release remains:
 
 ```text
 NONE
 ```
 
-B87-I2 - Governed Task Runtime is the next eligible implementation slice.
+B87-I3 - Three Memory Domains and Evidence Integration is the next eligible
+implementation slice.
 
-B87-I2 may begin only after Nolan separately issues:
+B87-I3 may begin only after Nolan separately issues:
 
-    AUTHORIZE B87-I2
+    AUTHORIZE B87-I3
 
-B87-I3 through B87-I5 require their own accepted contracts and explicit
-phase release before implementation begins.
+B87-I4 through B87-I5 require their own accepted contracts and explicit phase
+release before implementation begins.
 
 The Shared Experimental Evidence Core, Program Synthesis and Verification V0,
 and Algorithm Discovery Laboratory V0 are future external laboratory
