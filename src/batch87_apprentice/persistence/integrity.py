@@ -6,13 +6,19 @@ from dataclasses import dataclass
 import sqlite3
 from typing import Any
 
-from batch87_apprentice.common.canonical_json import parse_json
+from batch87_apprentice.common.canonical_json import (
+    canonical_json_text,
+    parse_json,
+)
 from batch87_apprentice.common.errors import (
     IntegrityInspectionError,
     MigrationError,
     ValidationError,
 )
-from batch87_apprentice.common.hashing import sha256_bytes
+from batch87_apprentice.common.hashing import (
+    sha256_bytes,
+    sha256_canonical_json,
+)
 
 from .contracts import (
     ControlledResiliencePayload,
@@ -150,6 +156,7 @@ class IntegrityInspector:
         self._inspect_anchors(connection, findings)
         self._inspect_records(connection, findings)
         self._inspect_controlled_classification(connection, findings)
+        self._inspect_task_runtime(connection, findings)
 
     @staticmethod
     def _inspect_sqlite(
@@ -633,4 +640,356 @@ class IntegrityInspector:
                     table="record_evidence_links",
                     object_id=record_id,
                     detail=detail,
+                )
+
+    @staticmethod
+    def _inspect_task_runtime(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        """Verify canonical I2 records and complete governed transactions."""
+
+        table_exists = connection.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'governed_runtime_transactions'
+            """
+        ).fetchone()
+        if table_exists is None:
+            return
+
+        canonical_tables = (
+            (
+                "permission_profiles",
+                "permission_profile_id",
+                "canonical_json",
+                "content_hash",
+            ),
+            ("sessions", "session_id", "canonical_json", "content_hash"),
+            (
+                "authority_records",
+                "authority_record_id",
+                "canonical_json",
+                "content_hash",
+            ),
+            (
+                "tasks",
+                "task_id",
+                "canonical_contract_json",
+                "contract_hash",
+            ),
+            (
+                "governance_decisions",
+                "governance_decision_id",
+                "canonical_json",
+                "content_hash",
+            ),
+            (
+                "task_stop_events",
+                "stop_event_id",
+                "canonical_json",
+                "content_hash",
+            ),
+        )
+        for table, id_column, json_column, hash_column in canonical_tables:
+            for row in connection.execute(
+                f"""
+                SELECT {id_column}, {json_column}, {hash_column}
+                FROM {table}
+                ORDER BY {id_column}
+                """
+            ):
+                object_id = row[id_column]
+                try:
+                    value = parse_json(row[json_column])
+                    if (
+                        not isinstance(value, dict)
+                        or canonical_json_text(value) != row[json_column]
+                    ):
+                        raise ValidationError(
+                            "stored value is not a canonical JSON object"
+                        )
+                    if row[hash_column] != sha256_canonical_json(value):
+                        _finding(
+                            findings,
+                            severity="error",
+                            code="task_runtime_hash_mismatch",
+                            table=table,
+                            object_id=object_id,
+                            detail=(
+                                f"{hash_column} differs from canonical "
+                                f"{json_column}"
+                            ),
+                        )
+                except ValidationError as exc:
+                    _finding(
+                        findings,
+                        severity="error",
+                        code="task_runtime_canonical_json_invalid",
+                        table=table,
+                        object_id=object_id,
+                        detail=str(exc),
+                    )
+
+        for row in connection.execute(
+            "SELECT * FROM governance_rules ORDER BY governance_rule_id"
+        ):
+            rule_value = {
+                "configuration": parse_json(row["configuration_json"]),
+                "description": row["description"],
+                "governance_rule_id": row["governance_rule_id"],
+                "kind": row["rule_kind"],
+                "name": row["rule_name"],
+                "version": row["rule_version"],
+            }
+            if row["content_hash"] != sha256_canonical_json(rule_value):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="governance_rule_hash_mismatch",
+                    table="governance_rules",
+                    object_id=row["governance_rule_id"],
+                    detail="stored digest differs from canonical rule content",
+                )
+
+        for row in connection.execute(
+            """
+            SELECT session.session_id, session.created_by_entity_id,
+                   participant.role
+            FROM sessions AS session
+            LEFT JOIN session_participants AS participant
+              ON participant.session_id = session.session_id
+             AND participant.entity_id = session.created_by_entity_id
+            ORDER BY session.session_id
+            """
+        ):
+            if row["role"] != "operator":
+                _finding(
+                    findings,
+                    severity="error",
+                    code="session_operator_missing",
+                    table="sessions",
+                    object_id=row["session_id"],
+                    detail="session creator is not preserved as operator participant",
+                )
+
+        for row in connection.execute(
+            """
+            SELECT authority_record_id, evidence_ids_json
+            FROM authority_records
+            ORDER BY authority_record_id
+            """
+        ):
+            declared = tuple(parse_json(row["evidence_ids_json"]))
+            linked = tuple(
+                (
+                    evidence["evidence_id"],
+                    evidence["evidence_order"],
+                )
+                for evidence in connection.execute(
+                    """
+                    SELECT evidence_id, evidence_order
+                    FROM authority_record_evidence
+                    WHERE authority_record_id = ?
+                    ORDER BY evidence_order
+                    """,
+                    (row["authority_record_id"],),
+                )
+            )
+            if tuple(evidence_id for evidence_id, _ in linked) != declared or tuple(
+                order for _, order in linked
+            ) != tuple(range(len(declared))):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="authority_evidence_relationship_invalid",
+                    table="authority_record_evidence",
+                    object_id=row["authority_record_id"],
+                    detail="linked evidence differs from the canonical authority order",
+                )
+
+        transactions = connection.execute(
+            """
+            SELECT transaction_record.*, task.status AS task_status,
+                   task.contract_hash, decision.governance_decision_id,
+                   decision.decision, decision.content_hash AS decision_hash,
+                   decision.task_contract_hash, decision.permission_profile_id,
+                   decision.permission_profile_hash,
+                   decision.runtime_execution_principal,
+                   decision.governing_rule_ids_json,
+                   decision.evidence_ids_json,
+                   profile.content_hash AS stored_profile_hash,
+                   stop.stop_event_id, stop.content_hash AS stop_hash
+            FROM governed_runtime_transactions AS transaction_record
+            LEFT JOIN tasks AS task ON task.task_id = transaction_record.task_id
+            LEFT JOIN governance_decisions AS decision
+              ON decision.transaction_id = transaction_record.transaction_id
+            LEFT JOIN permission_profiles AS profile
+              ON profile.permission_profile_id = decision.permission_profile_id
+            LEFT JOIN task_stop_events AS stop
+              ON stop.transaction_id = transaction_record.transaction_id
+            ORDER BY transaction_record.transaction_id
+            """
+        )
+        for row in transactions:
+            transaction_id = row["transaction_id"]
+            if (
+                row["task_status"] is None
+                or row["governance_decision_id"] is None
+                or row["status"] == "in_progress"
+            ):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="task_runtime_transaction_incomplete",
+                    table="governed_runtime_transactions",
+                    object_id=transaction_id,
+                    detail="transaction lacks a final task or governance decision",
+                )
+                continue
+
+            state_valid = (
+                row["status"] == "committed"
+                and row["task_status"] == "active"
+                and row["decision"] == "allow"
+                and row["stop_event_id"] is None
+            ) or (
+                row["status"] == "stopped"
+                and row["task_status"] == "stopped"
+                and row["decision"] != "allow"
+                and row["stop_event_id"] is not None
+            )
+            if not state_valid:
+                _finding(
+                    findings,
+                    severity="error",
+                    code="task_runtime_state_inconsistent",
+                    table="governed_runtime_transactions",
+                    object_id=transaction_id,
+                    detail="transaction, task, decision, and stop states disagree",
+                )
+
+            transitions = tuple(
+                connection.execute(
+                    """
+                    SELECT sequence_number, from_status, to_status
+                    FROM task_state_transitions
+                    WHERE task_id = ?
+                    ORDER BY sequence_number
+                    """,
+                    (row["task_id"],),
+                )
+            )
+            expected_terminal = (
+                "active" if row["status"] == "committed" else "stopped"
+            )
+            if (
+                len(transitions) != 2
+                or tuple(
+                    (
+                        transition["sequence_number"],
+                        transition["from_status"],
+                        transition["to_status"],
+                    )
+                    for transition in transitions
+                )
+                != (
+                    (0, None, "pending"),
+                    (1, "pending", expected_terminal),
+                )
+            ):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="task_transition_history_invalid",
+                    table="task_state_transitions",
+                    object_id=row["task_id"],
+                    detail="task does not have the exact two-step I2 transition history",
+                )
+
+            if (
+                row["contract_hash"] != row["task_contract_hash"]
+                or row["permission_profile_hash"] != row["stored_profile_hash"]
+                or row["execution_principal"]
+                != row["runtime_execution_principal"]
+            ):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="task_runtime_input_hash_mismatch",
+                    table="governance_decisions",
+                    object_id=row["governance_decision_id"],
+                    detail="decision input hash does not match its persisted input",
+                )
+
+            linked_rules = [
+                rule["governance_rule_id"]
+                for rule in connection.execute(
+                    """
+                    SELECT governance_rule_id
+                    FROM governance_decision_rules
+                    WHERE governance_decision_id = ?
+                    ORDER BY rule_order
+                    """,
+                    (row["governance_decision_id"],),
+                )
+            ]
+            if linked_rules != parse_json(row["governing_rule_ids_json"]):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="decision_rule_relationship_invalid",
+                    table="governance_decision_rules",
+                    object_id=row["governance_decision_id"],
+                    detail="decision rule links differ from canonical rule identifiers",
+                )
+
+            resolved_evidence = tuple(
+                dict.fromkeys(
+                    evidence["resolved_evidence_id"]
+                    for evidence in connection.execute(
+                        """
+                        SELECT resolved_evidence_id
+                        FROM governance_decision_evidence
+                        WHERE governance_decision_id = ?
+                          AND resolved_evidence_id IS NOT NULL
+                        ORDER BY input_order
+                        """,
+                        (row["governance_decision_id"],),
+                    )
+                )
+            )
+            if list(resolved_evidence) != parse_json(row["evidence_ids_json"]):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="decision_evidence_relationship_invalid",
+                    table="governance_decision_evidence",
+                    object_id=row["governance_decision_id"],
+                    detail="decision evidence links differ from canonical evidence identifiers",
+                )
+
+            structured_failures = parse_json(row["structured_failure_json"])
+            transaction_value = {
+                "completed_at": row["completed_at"],
+                "decision_hash": row["decision_hash"],
+                "execution_principal": row["execution_principal"],
+                "runtime_instance_id": row["runtime_instance_id"],
+                "started_at": row["started_at"],
+                "status": row["status"],
+                "stop_hash": row["stop_hash"],
+                "structured_failures": structured_failures,
+                "task_contract_hash": row["contract_hash"],
+                "task_id": row["task_id"],
+                "transaction_id": transaction_id,
+            }
+            if row["content_hash"] != sha256_canonical_json(transaction_value):
+                _finding(
+                    findings,
+                    severity="error",
+                    code="task_runtime_transaction_hash_mismatch",
+                    table="governed_runtime_transactions",
+                    object_id=transaction_id,
+                    detail="transaction digest differs from canonical reconstruction",
                 )
