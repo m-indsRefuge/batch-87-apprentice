@@ -991,7 +991,7 @@ def test_repeated_startup_and_file_backed_reopen_preserve_exact_reconstruction(
     )
     after = reopened.reconstruct(contract.task_id)
 
-    assert [migration.version for migration in migrations] == [1, 2, 3, 4]
+    assert [migration.version for migration in migrations] == [1, 2, 3, 4, 5]
     assert after == before
     assert after.value["task"]["task_id"] == contract.task_id
     assert after.value["session"]["session_id"] == harness.session_id
@@ -1163,7 +1163,7 @@ def test_integrity_inspector_accepts_complete_allow_and_stop_transactions(
     report = harness.persistence.integrity.inspect()
 
     assert report.ok
-    assert report.migration_count == 4
+    assert report.migration_count == 5
     assert report.error_count == 0
     assert report.warning_count == 0
 
