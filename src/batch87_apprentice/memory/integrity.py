@@ -14,9 +14,12 @@ from batch87_apprentice.persistence.transactions import PersistenceKernel
 from .contracts import (
     ELIGIBILITY_REASON_ORDER,
     GOVERNED_RELATIONSHIP_TYPES,
+    MEMORY_APPROVAL_AUTHORITY_CLASSES,
     MEMORY_DOMAINS,
     MEMORY_RECORD_POLICIES,
+    NOLAN_INCLUSIVE_AUTHORITY_CLASSES,
     EligibilityContext,
+    approval_authority_classes_for,
     memory_domain_for,
 )
 from .eligibility import evaluate_memory_eligibility
@@ -133,6 +136,140 @@ class MemoryIntegrityInspector:
                     None,
                     "stored memory record policy registry differs from code",
                 )
+
+            stored_approval_authorities: dict[tuple[str, str], set[str]] = {}
+            for row in connection.execute(
+                """
+                SELECT record_family, record_type, authority_class
+                FROM memory_record_approval_authorities
+                """
+            ):
+                stored_approval_authorities.setdefault(
+                    (row["record_family"], row["record_type"]),
+                    set(),
+                ).add(row["authority_class"])
+            if {
+                key: frozenset(value)
+                for key, value in stored_approval_authorities.items()
+            } != dict(MEMORY_APPROVAL_AUTHORITY_CLASSES):
+                self._finding(
+                    findings,
+                    "I3A-APPROVAL-AUTHORITY-REGISTRY",
+                    None,
+                    "stored memory approval matrix differs from code",
+                )
+
+            for grant in connection.execute("SELECT * FROM memory_approval_grants"):
+                self._check_canonical_row(
+                    findings,
+                    table="memory_approval_grants",
+                    row=grant,
+                    fields=(
+                        "grant_id",
+                        "record_id",
+                        "target_status",
+                        "operation",
+                        "project_scope_id",
+                        "authority_record_id",
+                        "approved_by_entity_id",
+                        "approved_at",
+                        "expires_at",
+                        "single_use",
+                        "evidence_id",
+                    ),
+                    record_id=grant["record_id"],
+                )
+                record = connection.execute(
+                    "SELECT record_family, record_type FROM records WHERE record_id = ?",
+                    (grant["record_id"],),
+                ).fetchone()
+                if (
+                    record is None
+                    or grant["authority_class"]
+                    not in approval_authority_classes_for(
+                        record["record_family"], record["record_type"]
+                    )
+                ):
+                    self._finding(
+                        findings,
+                        "I3A-APPROVAL-GRANT-POLICY",
+                        grant["record_id"],
+                        "approval grant does not match the type-specific matrix",
+                    )
+                if grant["single_use"] and grant["consumed_at"] is not None:
+                    transition = connection.execute(
+                        """
+                        SELECT 1 FROM memory_record_approval_transitions
+                        WHERE transition_id = ? AND approval_grant_id = ?
+                        """,
+                        (grant["consumed_by_transition_id"], grant["grant_id"]),
+                    ).fetchone()
+                    if transition is None:
+                        self._finding(
+                            findings,
+                            "I3A-APPROVAL-GRANT-CONSUMPTION",
+                            grant["record_id"],
+                            "consumed approval grant lacks its exact transition",
+                        )
+                if not grant["single_use"] and grant["consumed_at"] is not None:
+                    self._finding(
+                        findings,
+                        "I3A-APPROVAL-GRANT-CONSUMPTION",
+                        grant["record_id"],
+                        "reusable approval grant was marked consumed",
+                    )
+
+            for grant in connection.execute("SELECT * FROM memory_relationship_grants"):
+                self._check_canonical_row(
+                    findings,
+                    table="memory_relationship_grants",
+                    row=grant,
+                    fields=(
+                        "grant_id",
+                        "relationship_id",
+                        "relationship_type",
+                        "source_record_id",
+                        "target_record_id",
+                        "operation",
+                        "project_scope_id",
+                        "authority_record_id",
+                        "approved_by_entity_id",
+                        "approved_at",
+                        "expires_at",
+                        "single_use",
+                        "evidence_id",
+                    ),
+                    record_id=grant["source_record_id"],
+                )
+                if grant["authority_class"] not in NOLAN_INCLUSIVE_AUTHORITY_CLASSES:
+                    self._finding(
+                        findings,
+                        "I3A-RELATIONSHIP-GRANT-POLICY",
+                        grant["source_record_id"],
+                        "governed relationship grant is not Nolan-inclusive",
+                    )
+                if grant["single_use"] and grant["consumed_at"] is not None:
+                    relationship = connection.execute(
+                        """
+                        SELECT 1 FROM record_relationships
+                        WHERE relationship_id = ? AND relationship_grant_id = ?
+                        """,
+                        (grant["consumed_by_relationship_id"], grant["grant_id"]),
+                    ).fetchone()
+                    if relationship is None:
+                        self._finding(
+                            findings,
+                            "I3A-RELATIONSHIP-GRANT-CONSUMPTION",
+                            grant["source_record_id"],
+                            "consumed relationship grant lacks its exact relationship",
+                        )
+                if not grant["single_use"] and grant["consumed_at"] is not None:
+                    self._finding(
+                        findings,
+                        "I3A-RELATIONSHIP-GRANT-CONSUMPTION",
+                        grant["source_record_id"],
+                        "reusable relationship grant was marked consumed",
+                    )
 
             records = connection.execute(
                 """
@@ -256,12 +393,48 @@ class MemoryIntegrityInspector:
                                 "changed_at",
                                 "changed_by_principal",
                                 "changed_by_entity_id",
+                                "approval_grant_id",
                                 "authority_record_id",
                                 "approval_evidence_id",
                             ),
                             record_id=record_id,
                         )
                         if transition["sequence_number"] > 0:
+                            grant = connection.execute(
+                                """
+                                SELECT * FROM memory_approval_grants
+                                WHERE grant_id = ?
+                                """,
+                                (transition["approval_grant_id"],),
+                            ).fetchone()
+                            allowed = approval_authority_classes_for(
+                                record["record_family"],
+                                record["record_type"],
+                            )
+                            if (
+                                grant is None
+                                or grant["record_id"] != record_id
+                                or grant["target_status"] != transition["to_status"]
+                                or grant["authority_record_id"]
+                                != transition["authority_record_id"]
+                                or grant["evidence_id"]
+                                != transition["approval_evidence_id"]
+                                or grant["authority_class"] not in allowed
+                                or (
+                                    grant["single_use"]
+                                    and (
+                                        grant["consumed_at"] is None
+                                        or grant["consumed_by_transition_id"]
+                                        != transition["transition_id"]
+                                    )
+                                )
+                            ):
+                                self._finding(
+                                    findings,
+                                    "I3A-APPROVAL-GRANT",
+                                    record_id,
+                                    "approval transition lacks its exact consumed grant",
+                                )
                             authority = connection.execute(
                                 """
                                 SELECT authority_class, status, effect,
@@ -284,14 +457,7 @@ class MemoryIntegrityInspector:
                                 )
                                 or authority["project_scope_id"]
                                 != record["project_scope_id"]
-                                or authority["authority_class"]
-                                not in {
-                                    "law_or_external_obligation",
-                                    "nolan_approved",
-                                    "nolan_byte_approved",
-                                    "validated_system_evidence",
-                                    "approved_project_policy",
-                                }
+                                or authority["authority_class"] not in allowed
                                 or (
                                     authority["issuer_entity_id"] is not None
                                     and authority["issuer_entity_id"]
@@ -302,7 +468,7 @@ class MemoryIntegrityInspector:
                                     findings,
                                     "I3A-APPROVAL-AUTHORITY",
                                     record_id,
-                                    "approval transition lacks valid scoped authority",
+                                    "approval grant lacks valid type-specific authority",
                                 )
                             linked_evidence = connection.execute(
                                 """
@@ -418,7 +584,9 @@ class MemoryIntegrityInspector:
                         "relationship_type",
                         "created_at",
                         "created_by_principal",
+                        "relationship_grant_id",
                         "authority_record_id",
+                        "approval_evidence_id",
                         "explanation",
                     ),
                     record_id=relationship["source_record_id"],
@@ -429,10 +597,17 @@ class MemoryIntegrityInspector:
                         for row in endpoints
                         if row["project_scope_id"] is not None
                     }
+                    grant = connection.execute(
+                        """
+                        SELECT * FROM memory_relationship_grants
+                        WHERE grant_id = ?
+                        """,
+                        (relationship["relationship_grant_id"],),
+                    ).fetchone()
                     authority = connection.execute(
                         """
                         SELECT authority_class, status, effect, project_scope_id,
-                               effective_from, effective_until
+                               issuer_entity_id, effective_from, effective_until
                         FROM authority_records WHERE authority_record_id = ?
                         """,
                         (relationship["authority_record_id"],),
@@ -448,6 +623,29 @@ class MemoryIntegrityInspector:
                         relationship["created_by_principal"] != "operator"
                         or len(endpoints) != 2
                         or len(scopes) != 1
+                        or grant is None
+                        or grant["relationship_id"]
+                        != relationship["relationship_id"]
+                        or grant["relationship_type"]
+                        != relationship["relationship_type"]
+                        or grant["source_record_id"]
+                        != relationship["source_record_id"]
+                        or grant["target_record_id"]
+                        != relationship["target_record_id"]
+                        or grant["authority_record_id"]
+                        != relationship["authority_record_id"]
+                        or grant["evidence_id"]
+                        != relationship["approval_evidence_id"]
+                        or grant["authority_class"]
+                        not in NOLAN_INCLUSIVE_AUTHORITY_CLASSES
+                        or (
+                            grant["single_use"]
+                            and (
+                                grant["consumed_at"] is None
+                                or grant["consumed_by_relationship_id"]
+                                != relationship["relationship_id"]
+                            )
+                        )
                         or authority is None
                         or authority["status"] != "active"
                         or authority["effect"] != "allow"
@@ -459,20 +657,16 @@ class MemoryIntegrityInspector:
                         )
                         or authority["project_scope_id"] not in scopes
                         or authority["authority_class"]
-                        not in {
-                            "law_or_external_obligation",
-                            "nolan_approved",
-                            "nolan_byte_approved",
-                            "validated_system_evidence",
-                            "approved_project_policy",
-                        }
+                        not in NOLAN_INCLUSIVE_AUTHORITY_CLASSES
+                        or authority["issuer_entity_id"]
+                        != grant["approved_by_entity_id"]
                         or revoked is not None
                     ):
                         self._finding(
                             findings,
                             "I3A-RELATIONSHIP-AUTHORITY",
                             relationship["source_record_id"],
-                            "governed relationship lacks same-project valid authority",
+                            "governed relationship lacks its exact Nolan grant",
                         )
 
             assessments = connection.execute(

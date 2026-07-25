@@ -73,6 +73,64 @@ MEMORY_RECORD_TYPES: Mapping[tuple[str, str], str] = {
     key: policy[0] for key, policy in MEMORY_RECORD_POLICIES.items()
 }
 
+# Type-specific implementation of the accepted memory approval matrix.  A
+# general Observe/Analyse authority is never sufficient by itself; it may only
+# support an exact immutable grant, and its authority class must appear here.
+MEMORY_APPROVAL_AUTHORITY_CLASSES: Mapping[
+    tuple[str, str], frozenset[str]
+] = {
+    ("construct_memory", "construct_entity"): frozenset(
+        {"nolan_byte_approved"}
+    ),
+    ("construct_memory", "construct_relationship"): frozenset(
+        {"nolan_byte_approved"}
+    ),
+    ("construct_memory", "architecture_decision"): frozenset(
+        {"nolan_approved"}
+    ),
+    ("construct_memory", "project_state"): frozenset(
+        {"validated_system_evidence", "nolan_byte_approved"}
+    ),
+    ("construct_memory", "construct_doctrine"): frozenset(
+        {"nolan_approved"}
+    ),
+    ("construct_memory", "terminology_definition"): frozenset(
+        {"nolan_byte_approved"}
+    ),
+    ("construct_memory", "preference_record"): frozenset(
+        {"nolan_approved"}
+    ),
+    ("self_model", "capability_observation"): frozenset(
+        {"nolan_byte_approved"}
+    ),
+    ("self_model", "maturity_state"): frozenset(
+        {"nolan_byte_approved"}
+    ),
+    ("episodic_memory", "episode"): frozenset(
+        {"validated_system_evidence", "nolan_approved", "nolan_byte_approved"}
+    ),
+    ("episodic_memory", "correction"): frozenset(
+        {"nolan_approved", "nolan_byte_approved"}
+    ),
+    ("episodic_memory", "lesson_candidate"): frozenset(
+        {"nolan_approved", "nolan_byte_approved"}
+    ),
+    ("episodic_memory", "approved_lesson"): frozenset(
+        {"nolan_byte_approved"}
+    ),
+    ("episodic_memory", "failure_pattern"): frozenset(
+        {"validated_system_evidence", "nolan_byte_approved"}
+    ),
+    ("episodic_memory", "success_pattern"): frozenset(
+        {"validated_system_evidence", "nolan_byte_approved"}
+    ),
+}
+
+MEMORY_APPROVAL_OPERATION = "approve_memory_record"
+MEMORY_RELATIONSHIP_OPERATION = "governed_record_relationship"
+NOLAN_INCLUSIVE_AUTHORITY_CLASSES = frozenset(
+    {"nolan_approved", "nolan_byte_approved"}
+)
 I3A_ORDINARY_SENSITIVITY_CLASSES = frozenset({"public", "internal"})
 I3A_ORDINARY_PRIVACY_CLASSES = frozenset({"none"})
 
@@ -113,7 +171,6 @@ RELATIONSHIP_TYPES = frozenset(
     }
 )
 
-
 GOVERNED_RELATIONSHIP_TYPES = frozenset(
     {"corrects", "supersedes", "revokes", "approved_as"}
 )
@@ -148,6 +205,18 @@ def memory_domain_for(record_family: str, record_type: str) -> str | None:
     return MEMORY_RECORD_TYPES.get((record_family, record_type))
 
 
+def approval_authority_classes_for(
+    record_family: str,
+    record_type: str,
+) -> frozenset[str]:
+    """Return exact authority classes permitted to back an approval grant."""
+
+    return MEMORY_APPROVAL_AUTHORITY_CLASSES.get(
+        (record_family, record_type),
+        frozenset(),
+    )
+
+
 def validate_lifecycle_transition(from_state: str, to_state: str) -> None:
     """Reject any lifecycle transition not defined by the accepted A2 state model."""
 
@@ -170,6 +239,128 @@ def validate_approval_transition(from_status: str, to_status: str) -> None:
         )
 
 
+def _nonempty(value: str, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValidationError(f"{field} must be non-empty")
+    return value
+
+
+def _optional_expiry(approved_at: str, expires_at: str | None) -> None:
+    parse_canonical_utc(approved_at, field="approved_at")
+    if expires_at is not None:
+        parse_canonical_utc(expires_at, field="expires_at")
+        if expires_at < approved_at:
+            raise ValidationError("expires_at cannot precede approved_at")
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryApprovalGrant:
+    """Immutable, exact grant for one record approval-state transition."""
+
+    grant_id: str
+    record_id: str
+    target_status: str
+    project_scope_id: str
+    authority_record_id: str
+    approved_by_entity_id: str
+    approved_at: str
+    evidence_id: str
+    single_use: bool = True
+    expires_at: str | None = None
+    operation: str = MEMORY_APPROVAL_OPERATION
+
+    def __post_init__(self) -> None:
+        validate_identifier(self.grant_id, field="grant_id")
+        validate_identifier(self.record_id, field="record_id")
+        validate_identifier(self.project_scope_id, field="project_scope_id")
+        validate_identifier(self.authority_record_id, field="authority_record_id")
+        validate_identifier(
+            self.approved_by_entity_id,
+            field="approved_by_entity_id",
+        )
+        validate_identifier(self.evidence_id, field="evidence_id")
+        if self.target_status not in {"approved", "rejected", "withdrawn"}:
+            raise ValidationError("memory approval grant target_status is unsupported")
+        if self.operation != MEMORY_APPROVAL_OPERATION:
+            raise ValidationError("memory approval grant operation is not exact")
+        if not isinstance(self.single_use, bool):
+            raise ValidationError("single_use must be boolean")
+        _optional_expiry(self.approved_at, self.expires_at)
+
+    def canonical_value(self) -> dict[str, object]:
+        return {
+            "grant_id": self.grant_id,
+            "record_id": self.record_id,
+            "target_status": self.target_status,
+            "operation": self.operation,
+            "project_scope_id": self.project_scope_id,
+            "authority_record_id": self.authority_record_id,
+            "approved_by_entity_id": self.approved_by_entity_id,
+            "approved_at": self.approved_at,
+            "expires_at": self.expires_at,
+            "single_use": self.single_use,
+            "evidence_id": self.evidence_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryRelationshipGrant:
+    """Immutable Nolan-inclusive grant for one governed record relationship."""
+
+    grant_id: str
+    relationship_id: str
+    relationship_type: str
+    source_record_id: str
+    target_record_id: str
+    project_scope_id: str
+    authority_record_id: str
+    approved_by_entity_id: str
+    approved_at: str
+    evidence_id: str
+    single_use: bool = True
+    expires_at: str | None = None
+    operation: str = MEMORY_RELATIONSHIP_OPERATION
+
+    def __post_init__(self) -> None:
+        for field, value in (
+            ("grant_id", self.grant_id),
+            ("relationship_id", self.relationship_id),
+            ("source_record_id", self.source_record_id),
+            ("target_record_id", self.target_record_id),
+            ("project_scope_id", self.project_scope_id),
+            ("authority_record_id", self.authority_record_id),
+            ("approved_by_entity_id", self.approved_by_entity_id),
+            ("evidence_id", self.evidence_id),
+        ):
+            validate_identifier(value, field=field)
+        if self.source_record_id == self.target_record_id:
+            raise ValidationError("relationship grant cannot target one record twice")
+        if self.relationship_type not in GOVERNED_RELATIONSHIP_TYPES:
+            raise ValidationError("relationship grant requires a governed type")
+        if self.operation != MEMORY_RELATIONSHIP_OPERATION:
+            raise ValidationError("relationship grant operation is not exact")
+        if not isinstance(self.single_use, bool):
+            raise ValidationError("single_use must be boolean")
+        _optional_expiry(self.approved_at, self.expires_at)
+
+    def canonical_value(self) -> dict[str, object]:
+        return {
+            "grant_id": self.grant_id,
+            "relationship_id": self.relationship_id,
+            "relationship_type": self.relationship_type,
+            "source_record_id": self.source_record_id,
+            "target_record_id": self.target_record_id,
+            "operation": self.operation,
+            "project_scope_id": self.project_scope_id,
+            "authority_record_id": self.authority_record_id,
+            "approved_by_entity_id": self.approved_by_entity_id,
+            "approved_at": self.approved_at,
+            "expires_at": self.expires_at,
+            "single_use": self.single_use,
+            "evidence_id": self.evidence_id,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class RecordRelationship:
     relationship_id: str
@@ -179,7 +370,7 @@ class RecordRelationship:
     created_at: str
     created_by_principal: str
     explanation: str
-    authority_record_id: str | None = None
+    relationship_grant_id: str | None = None
 
     def __post_init__(self) -> None:
         validate_identifier(self.relationship_id, field="relationship_id")
@@ -198,12 +389,11 @@ class RecordRelationship:
             "codex_development_harness",
         }:
             raise ValidationError("unsupported relationship principal")
-        if not isinstance(self.explanation, str) or not self.explanation.strip():
-            raise ValidationError("relationship explanation must be non-empty")
-        if self.authority_record_id is not None:
+        _nonempty(self.explanation, "relationship explanation")
+        if self.relationship_grant_id is not None:
             validate_identifier(
-                self.authority_record_id,
-                field="authority_record_id",
+                self.relationship_grant_id,
+                field="relationship_grant_id",
             )
 
 
@@ -251,8 +441,7 @@ class EligibilityContext:
             raise ValidationError(
                 "cross-project memory authorization is deferred to the governed I4 path"
             )
-        if not isinstance(self.policy_version, str) or not self.policy_version.strip():
-            raise ValidationError("policy_version must be non-empty")
+        _nonempty(self.policy_version, "policy_version")
 
     def canonical_value(self) -> dict[str, object]:
         return {
