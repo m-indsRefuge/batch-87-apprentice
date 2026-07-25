@@ -62,6 +62,11 @@ def evaluate_memory_eligibility(
         reasons.add("restricted_evaluation_evidence")
         reasons.add("ordinary_retrieval_prohibited")
 
+    if family == "episodic_memory" and record_type == "lesson_candidate":
+        # A reviewed or active candidate remains inspect-only. Ordinary retrieval
+        # requires a separately created and approved approved_lesson record.
+        reasons.add("ordinary_retrieval_prohibited")
+
     domain = memory_domain_for(family, record_type)
     if domain is None:
         reasons.add("not_memory_record")

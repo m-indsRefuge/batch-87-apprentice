@@ -1086,3 +1086,144 @@ def test_authority_bearing_relationship_rejects_non_nolan_grant(tmp_path) -> Non
                 evidence_id=evidence_id,
             )
         )
+
+
+
+def test_lesson_candidate_exclusion_is_reconstructable_and_approved_lesson_is_eligible(
+    tmp_path,
+) -> None:
+    harness = build_harness(tmp_path)
+    task_id = create_active_task(harness, base=100_000)
+    memory = MemoryKernel(harness.config)
+
+    candidate_id, _ = create_candidate_memory_type(
+        harness,
+        base=100_100,
+        record_family="episodic_memory",
+        record_type="lesson_candidate",
+        agent_write_policy="candidate_only",
+    )
+    memory.register_initial_state(
+        candidate_id,
+        lifecycle_transition_id=uid(100_300),
+        approval_transition_id=uid(100_301),
+        changed_at=NOW,
+        changed_by_principal="codex_development_harness",
+        changed_by_entity_id=harness.participant_id,
+        reason_code="candidate_registered",
+    )
+    memory.transition_lifecycle(
+        candidate_id,
+        transition_id=uid(100_302),
+        to_state="reviewed",
+        reason_code="provenance_review_complete",
+        changed_at=NOW,
+        changed_by_principal="operator",
+        changed_by_entity_id=harness.operator_id,
+    )
+
+    with pytest.raises(ValidationError, match="cannot be approved in place"):
+        register_approval_grant(
+            harness,
+            memory,
+            candidate_id,
+            base=100_400,
+        )
+
+    candidate_decision = memory.assess_eligibility(
+        candidate_id,
+        EligibilityContext(
+            assessment_id=uid(100_600),
+            task_id=task_id,
+            task_project_scope_id=harness.project_scope_id,
+            requested_domain="self_episodic",
+            evaluated_at=NOW,
+            allowed_sensitivity_classes=("public", "internal"),
+            allowed_privacy_classes=("none",),
+        ),
+    )
+    assert candidate_decision.eligible is False
+    assert candidate_decision.reason_codes[0] == "ordinary_retrieval_prohibited"
+    assert "lifecycle_not_active" in candidate_decision.reason_codes
+    assert "approval_not_eligible" in candidate_decision.reason_codes
+
+    candidate_reconstruction = memory.reconstruct(candidate_id)
+    candidate_assessment = candidate_reconstruction["eligibility_assessments"][0]
+    assert candidate_assessment["eligible"] == 0
+    assert candidate_assessment["reason_codes"][0] == "ordinary_retrieval_prohibited"
+    assert candidate_assessment["decision_hash"] == candidate_decision.decision_hash
+
+    approved_lesson_id, _ = create_candidate_memory_type(
+        harness,
+        base=100_200,
+        record_family="episodic_memory",
+        record_type="approved_lesson",
+        agent_write_policy="prohibited",
+    )
+    memory.register_initial_state(
+        approved_lesson_id,
+        lifecycle_transition_id=uid(100_310),
+        approval_transition_id=uid(100_311),
+        changed_at=NOW,
+        changed_by_principal="codex_development_harness",
+        changed_by_entity_id=harness.participant_id,
+        reason_code="candidate_registered",
+    )
+    memory.transition_lifecycle(
+        approved_lesson_id,
+        transition_id=uid(100_312),
+        to_state="reviewed",
+        reason_code="provenance_review_complete",
+        changed_at=NOW,
+        changed_by_principal="operator",
+        changed_by_entity_id=harness.operator_id,
+    )
+    approved_grant_id = register_approval_grant(
+        harness,
+        memory,
+        approved_lesson_id,
+        base=100_410,
+    )
+    memory.transition_approval(
+        approved_lesson_id,
+        transition_id=uid(100_413),
+        to_status="approved",
+        reason_code="exact_memory_approval_grant",
+        changed_at=NOW,
+        changed_by_entity_id=harness.operator_id,
+        approval_grant_id=approved_grant_id,
+    )
+    memory.transition_lifecycle(
+        approved_lesson_id,
+        transition_id=uid(100_510),
+        to_state="approved",
+        reason_code="approval_recorded",
+        changed_at=NOW,
+        changed_by_principal="operator",
+        changed_by_entity_id=harness.operator_id,
+    )
+    memory.transition_lifecycle(
+        approved_lesson_id,
+        transition_id=uid(100_511),
+        to_state="active",
+        reason_code="activation_gate_passed",
+        changed_at=NOW,
+        changed_by_principal="operator",
+        changed_by_entity_id=harness.operator_id,
+    )
+
+    approved_decision = memory.assess_eligibility(
+        approved_lesson_id,
+        EligibilityContext(
+            assessment_id=uid(100_601),
+            task_id=task_id,
+            task_project_scope_id=harness.project_scope_id,
+            requested_domain="self_episodic",
+            evaluated_at=NOW,
+            allowed_sensitivity_classes=("public", "internal"),
+            allowed_privacy_classes=("none",),
+        ),
+    )
+    assert approved_decision.eligible is True
+    assert approved_decision.reason_codes == ()
+    assert MemoryIntegrityInspector(harness.config).inspect().ok is True

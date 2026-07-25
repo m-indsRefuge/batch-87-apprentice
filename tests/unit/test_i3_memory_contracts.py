@@ -131,6 +131,30 @@ def test_eligible_record_has_no_exclusion_reasons() -> None:
     assert len(decision.decision_hash) == 64
 
 
+def test_lesson_candidate_is_never_ordinary_eligible_but_approved_lesson_is() -> None:
+    self_episodic_context = context(requested_domain="self_episodic")
+
+    candidate = evaluate_memory_eligibility(
+        active_record(
+            record_family="episodic_memory",
+            record_type="lesson_candidate",
+        ),
+        self_episodic_context,
+    )
+    assert candidate.eligible is False
+    assert candidate.reason_codes == ("ordinary_retrieval_prohibited",)
+
+    approved = evaluate_memory_eligibility(
+        active_record(
+            record_family="episodic_memory",
+            record_type="approved_lesson",
+        ),
+        self_episodic_context,
+    )
+    assert approved.eligible is True
+    assert approved.reason_codes == ()
+
+
 @pytest.mark.parametrize(
     ("change", "expected"),
     [
