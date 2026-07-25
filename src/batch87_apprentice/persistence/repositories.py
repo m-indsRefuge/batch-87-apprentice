@@ -247,6 +247,25 @@ class RecordRepository:
             raise ValidationError(
                 "controlled-resilience records require their atomic repository"
             )
+        registered_memory = self._kernel.read(
+            lambda connection: (
+                connection.execute(
+                    """
+                    SELECT 1
+                    FROM memory_record_types
+                    WHERE record_family = ?
+                      AND record_type = ?
+                      AND status = 'active'
+                    """,
+                    (envelope.record_family, envelope.record_type),
+                ).fetchone()
+                is not None
+            )
+        )
+        if registered_memory:
+            raise ValidationError(
+                "memory records require a governed domain repository"
+            )
         digest = record_content_hash(envelope)
         self._kernel.write(
             lambda connection: _insert_record(
