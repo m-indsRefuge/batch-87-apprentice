@@ -157,6 +157,27 @@ class IntegrityInspector:
         self._inspect_records(connection, findings)
         self._inspect_controlled_classification(connection, findings)
         self._inspect_task_runtime(connection, findings)
+        self._inspect_construct_memory(connection, findings)
+
+    @staticmethod
+    def _inspect_construct_memory(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        from batch87_apprentice.memory.construct_integrity import (
+            ConstructIntegrityInspector,
+        )
+
+        report = ConstructIntegrityInspector._inspect_connection(connection)
+        for finding in report.findings:
+            _finding(
+                findings,
+                severity=finding.severity,
+                code="construct_memory_" + finding.code.lower().replace("-", "_"),
+                table="construct_memory",
+                object_id=finding.record_id,
+                detail=finding.detail,
+            )
 
     @staticmethod
     def _inspect_sqlite(
@@ -370,6 +391,12 @@ class IntegrityInspector:
         connection: sqlite3.Connection,
         findings: list[IntegrityFinding],
     ) -> None:
+        from batch87_apprentice.memory.construct_contracts import (
+            CONSTRUCT_PAYLOAD_TABLES,
+            construct_memory_content_hash,
+            payload_from_database,
+        )
+
         payloads = {
             row["record_id"]: row
             for row in connection.execute(
@@ -383,6 +410,25 @@ class IntegrityInspector:
                 if record_id in payloads:
                     payload = _payload_from_row(payloads[record_id])
                     expected = controlled_resilience_content_hash(envelope, payload)
+                elif row["record_type"] in CONSTRUCT_PAYLOAD_TABLES:
+                    construct_row = connection.execute(
+                        f"""
+                        SELECT * FROM {CONSTRUCT_PAYLOAD_TABLES[row['record_type']]}
+                        WHERE record_id = ?
+                        """,
+                        (record_id,),
+                    ).fetchone()
+                    if construct_row is None:
+                        expected = record_content_hash(envelope)
+                    else:
+                        construct_payload = payload_from_database(
+                            row["record_type"],
+                            dict(construct_row),
+                        )
+                        expected = construct_memory_content_hash(
+                            envelope,
+                            construct_payload,
+                        )
                 else:
                     expected = record_content_hash(envelope)
                 if row["content_hash"] != expected:

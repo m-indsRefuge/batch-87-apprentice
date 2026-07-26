@@ -22,6 +22,28 @@ from .contracts import (
     validate_approval_transition,
     validate_lifecycle_transition,
 )
+from .construct_contracts import (
+    CONSTRUCT_PAYLOAD_TABLES,
+    CONSTRUCT_PAYLOAD_TYPES,
+    CONSTRUCT_RELATIONSHIP_POLICIES,
+    ArchitectureDecisionPayload,
+    ConstructDoctrinePayload,
+    ConstructEntityPayload,
+    ConstructRelationshipPayload,
+    PreferenceRecordPayload,
+    ProjectStatePayload,
+    TerminologyDefinitionPayload,
+    construct_memory_content_hash,
+    normalize_construct_term,
+    payload_from_database,
+    validate_construct_pair,
+)
+from .construct_integrity import (
+    ConstructIntegrityFinding,
+    ConstructIntegrityInspector,
+    ConstructIntegrityReport,
+)
+from .construct_repository import ConstructMemoryRepository
 from .eligibility import evaluate_memory_eligibility
 from .integrity import (
     MemoryIntegrityFinding,
@@ -32,6 +54,9 @@ from .kernel import MemoryKernel
 
 __all__ = [
     "APPROVAL_TRANSITIONS",
+    "CONSTRUCT_PAYLOAD_TABLES",
+    "CONSTRUCT_PAYLOAD_TYPES",
+    "CONSTRUCT_RELATIONSHIP_POLICIES",
     "ELIGIBILITY_REASON_ORDER",
     "GOVERNED_RELATIONSHIP_TYPES",
     "LIFECYCLE_TRANSITIONS",
@@ -44,16 +69,31 @@ __all__ = [
     "RELATIONSHIP_TYPES",
     "EligibilityContext",
     "EligibilityDecision",
+    "ArchitectureDecisionPayload",
+    "ConstructDoctrinePayload",
+    "ConstructEntityPayload",
+    "ConstructIntegrityFinding",
+    "ConstructIntegrityInspector",
+    "ConstructIntegrityReport",
+    "ConstructMemoryRepository",
+    "ConstructRelationshipPayload",
     "MemoryApprovalGrant",
     "MemoryIntegrityFinding",
     "MemoryIntegrityInspector",
     "MemoryIntegrityReport",
     "MemoryKernel",
     "MemoryRelationshipGrant",
+    "PreferenceRecordPayload",
+    "ProjectStatePayload",
     "RecordRelationship",
+    "TerminologyDefinitionPayload",
     "approval_authority_classes_for",
+    "construct_memory_content_hash",
+    "normalize_construct_term",
     "evaluate_memory_eligibility",
     "memory_domain_for",
+    "payload_from_database",
     "validate_approval_transition",
     "validate_lifecycle_transition",
+    "validate_construct_pair",
 ]

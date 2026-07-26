@@ -19,10 +19,10 @@ from .contracts import (
     MEMORY_RECORD_POLICIES,
     NOLAN_INCLUSIVE_AUTHORITY_CLASSES,
     EligibilityContext,
-    approval_authority_classes_for,
     memory_domain_for,
 )
 from .eligibility import evaluate_memory_eligibility
+from .kernel import _approval_authority_classes_for_record
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,15 +180,16 @@ class MemoryIntegrityInspector:
                     record_id=grant["record_id"],
                 )
                 record = connection.execute(
-                    "SELECT record_family, record_type FROM records WHERE record_id = ?",
+                    """
+                    SELECT record_id, record_family, record_type
+                    FROM records WHERE record_id = ?
+                    """,
                     (grant["record_id"],),
                 ).fetchone()
                 if (
                     record is None
                     or grant["authority_class"]
-                    not in approval_authority_classes_for(
-                        record["record_family"], record["record_type"]
-                    )
+                    not in _approval_authority_classes_for_record(connection, record)
                 ):
                     self._finding(
                         findings,
@@ -407,9 +408,9 @@ class MemoryIntegrityInspector:
                                 """,
                                 (transition["approval_grant_id"],),
                             ).fetchone()
-                            allowed = approval_authority_classes_for(
-                                record["record_family"],
-                                record["record_type"],
+                            allowed = _approval_authority_classes_for_record(
+                                connection,
+                                record,
                             )
                             if (
                                 grant is None

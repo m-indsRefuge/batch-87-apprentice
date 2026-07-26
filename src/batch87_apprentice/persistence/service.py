@@ -23,6 +23,13 @@ class PersistenceService:
     """Expose implemented repositories over one governed kernel."""
 
     def __init__(self, config: DatabaseConfig) -> None:
+        from batch87_apprentice.memory.construct_integrity import (
+            ConstructIntegrityInspector,
+        )
+        from batch87_apprentice.memory.construct_repository import (
+            ConstructMemoryRepository,
+        )
+
         self.config = config
         kernel = PersistenceKernel(config)
         self.runtime_instances = RuntimeRepository(kernel)
@@ -32,6 +39,8 @@ class PersistenceService:
         self.evidence = EvidenceRepository(kernel)
         self.reference_anchors = ReferenceAnchorRepository(kernel)
         self.controlled_resilience = ControlledResilienceRepository(kernel)
+        self.construct_memory = ConstructMemoryRepository(kernel)
+        self.construct_integrity = ConstructIntegrityInspector(kernel)
         self.integrity = IntegrityInspector(kernel)
 
     @classmethod
