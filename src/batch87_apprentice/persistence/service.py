@@ -29,6 +29,15 @@ class PersistenceService:
         from batch87_apprentice.memory.construct_repository import (
             ConstructMemoryRepository,
         )
+        from batch87_apprentice.memory.self_episodic_integrity import (
+            SelfEpisodicIntegrityInspector,
+        )
+        from batch87_apprentice.memory.self_episodic_repository import (
+            SelfEpisodicMemoryRepository,
+        )
+        from batch87_apprentice.memory.self_model_projection import (
+            PermissionProfileProjection,
+        )
 
         self.config = config
         kernel = PersistenceKernel(config)
@@ -41,6 +50,9 @@ class PersistenceService:
         self.controlled_resilience = ControlledResilienceRepository(kernel)
         self.construct_memory = ConstructMemoryRepository(kernel)
         self.construct_integrity = ConstructIntegrityInspector(kernel)
+        self.self_episodic_memory = SelfEpisodicMemoryRepository(kernel)
+        self.permission_profile_projection = PermissionProfileProjection(config)
+        self.self_episodic_integrity = SelfEpisodicIntegrityInspector(kernel)
         self.integrity = IntegrityInspector(kernel)
 
     @classmethod

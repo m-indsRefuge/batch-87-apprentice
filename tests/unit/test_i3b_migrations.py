@@ -67,8 +67,8 @@ def test_fresh_database_applies_exact_order_and_ledger_hash(tmp_path: Path) -> N
 
     migrations = runner.apply_all()
 
-    assert [migration.version for migration in migrations] == [1, 2, 3, 4, 5, 6]
-    assert migrations[-1].filename == "0006_construct_relational_memory.sql"
+    assert [migration.version for migration in migrations] == list(range(1, 8))
+    assert migrations[5].filename == "0006_construct_relational_memory.sql"
     assert I3B_TABLES <= table_names(config.path)
     connection = sqlite3.connect(config.path)
     try:
@@ -80,7 +80,7 @@ def test_fresh_database_applies_exact_order_and_ledger_hash(tmp_path: Path) -> N
         ).fetchone()[0]
     finally:
         connection.close()
-    assert ledger_hash == migrations[-1].sha256
+    assert ledger_hash == migrations[5].sha256
 
 
 def test_exact_0005_database_upgrades_additively_to_0006(tmp_path: Path) -> None:

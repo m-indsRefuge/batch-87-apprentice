@@ -297,7 +297,7 @@ def test_i3a_migration_installs_exactly_three_domains(tmp_path) -> None:
         count = connection.execute(
             "SELECT COUNT(*) AS value FROM schema_migrations"
         ).fetchone()["value"]
-        assert count == 6
+        assert count == 7
 
 
 def test_memory_state_transitions_and_eligibility_are_reconstructable(tmp_path) -> None:

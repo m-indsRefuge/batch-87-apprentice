@@ -158,6 +158,7 @@ class IntegrityInspector:
         self._inspect_controlled_classification(connection, findings)
         self._inspect_task_runtime(connection, findings)
         self._inspect_construct_memory(connection, findings)
+        self._inspect_self_episodic_memory(connection, findings)
 
     @staticmethod
     def _inspect_construct_memory(
@@ -175,6 +176,26 @@ class IntegrityInspector:
                 severity=finding.severity,
                 code="construct_memory_" + finding.code.lower().replace("-", "_"),
                 table="construct_memory",
+                object_id=finding.record_id,
+                detail=finding.detail,
+            )
+
+    @staticmethod
+    def _inspect_self_episodic_memory(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        from batch87_apprentice.memory.self_episodic_integrity import (
+            SelfEpisodicIntegrityInspector,
+        )
+
+        report = SelfEpisodicIntegrityInspector._inspect_connection(connection)
+        for finding in report.findings:
+            _finding(
+                findings,
+                severity=finding.severity,
+                code="self_episodic_" + finding.code.lower().replace("-", "_"),
+                table=finding.table,
                 object_id=finding.record_id,
                 detail=finding.detail,
             )
@@ -396,6 +417,11 @@ class IntegrityInspector:
             construct_memory_content_hash,
             payload_from_database,
         )
+        from batch87_apprentice.memory.self_episodic_contracts import (
+            FACTUAL_SELF_PAYLOAD_TABLES,
+            factual_self_content_hash,
+            payload_from_database as factual_self_payload_from_database,
+        )
 
         payloads = {
             row["record_id"]: row
@@ -428,6 +454,57 @@ class IntegrityInspector:
                         expected = construct_memory_content_hash(
                             envelope,
                             construct_payload,
+                        )
+                elif (
+                    row["record_family"] == "self_model"
+                    and row["record_type"] in FACTUAL_SELF_PAYLOAD_TABLES
+                ):
+                    factual_row = connection.execute(
+                        f"""
+                        SELECT *
+                        FROM {FACTUAL_SELF_PAYLOAD_TABLES[row['record_type']]}
+                        WHERE record_id = ?
+                        """,
+                        (record_id,),
+                    ).fetchone()
+                    if factual_row is None:
+                        expected = record_content_hash(envelope)
+                    else:
+                        evaluation_ids: tuple[str, ...] = ()
+                        if row["record_type"] == "capability_observation":
+                            evaluation_ids = tuple(
+                                item["evaluation_record_id"]
+                                for item in connection.execute(
+                                    """
+                                    SELECT evaluation_record_id
+                                    FROM capability_observation_evaluations
+                                    WHERE record_id = ?
+                                    ORDER BY evaluation_order
+                                    """,
+                                    (record_id,),
+                                )
+                            )
+                        elif row["record_type"] == "maturity_state":
+                            evaluation_ids = tuple(
+                                item["evaluation_record_id"]
+                                for item in connection.execute(
+                                    """
+                                    SELECT evaluation_record_id
+                                    FROM maturity_state_basis_evaluations
+                                    WHERE record_id = ?
+                                    ORDER BY evaluation_order
+                                    """,
+                                    (record_id,),
+                                )
+                            )
+                        factual_payload = factual_self_payload_from_database(
+                            row["record_type"],
+                            dict(factual_row),
+                            evaluation_record_ids=evaluation_ids,
+                        )
+                        expected = factual_self_content_hash(
+                            envelope,
+                            factual_payload,
                         )
                 else:
                     expected = record_content_hash(envelope)
