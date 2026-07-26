@@ -27,7 +27,409 @@ from .contracts import (
     validate_approval_transition,
     validate_lifecycle_transition,
 )
+from .construct_contracts import (
+    CONSTRUCT_RELATIONSHIP_POLICIES,
+    normalize_construct_term,
+)
 from .eligibility import eligibility_record_snapshot, evaluate_memory_eligibility
+
+
+def _approval_authority_classes_for_record(
+    connection: sqlite3.Connection,
+    record: Mapping[str, Any],
+) -> frozenset[str]:
+    """Resolve the exact approval floor, including I3-B payload-aware policy."""
+
+    if (
+        record["record_family"] == "construct_memory"
+        and record["record_type"] == "construct_relationship"
+    ):
+        row = connection.execute(
+            """
+            SELECT relationship.relationship_type,
+                   policy.authority_bearing,
+                   policy.self_reference_permitted,
+                   policy.bidirectional_permitted,
+                   policy.required_approval_authority_class,
+                   policy.status
+            FROM construct_relationships AS relationship
+            JOIN construct_relationship_type_policies AS policy
+              ON policy.relationship_type = relationship.relationship_type
+            WHERE relationship.record_id = ?
+            """,
+            (record["record_id"],),
+        ).fetchone()
+        if row is None:
+            return frozenset()
+        expected = CONSTRUCT_RELATIONSHIP_POLICIES.get(row["relationship_type"])
+        if (
+            expected is None
+            or row["status"] != "active"
+            or bool(row["authority_bearing"]) != expected.authority_bearing
+            or bool(row["self_reference_permitted"])
+            != expected.self_reference_permitted
+            or bool(row["bidirectional_permitted"])
+            != expected.bidirectional_permitted
+            or row["required_approval_authority_class"]
+            != expected.required_approval_authority_class
+        ):
+            return frozenset()
+        return frozenset({expected.required_approval_authority_class})
+    return approval_authority_classes_for(
+        record["record_family"],
+        record["record_type"],
+    )
+
+
+def _insert_initial_memory_state(
+    connection: sqlite3.Connection,
+    record_id: str,
+    *,
+    lifecycle_transition_id: str,
+    approval_transition_id: str,
+    changed_at: str,
+    changed_by_principal: str,
+    reason_code: str,
+    changed_by_entity_id: str | None = None,
+) -> None:
+    """Insert both sequence-zero histories inside an existing transaction."""
+
+    validate_identifier(record_id, field="record_id")
+    validate_identifier(
+        lifecycle_transition_id,
+        field="lifecycle_transition_id",
+    )
+    validate_identifier(
+        approval_transition_id,
+        field="approval_transition_id",
+    )
+    parse_canonical_utc(changed_at, field="changed_at")
+    if changed_by_entity_id is not None:
+        validate_identifier(changed_by_entity_id, field="changed_by_entity_id")
+    if changed_by_principal not in {"operator", "codex_development_harness"}:
+        raise ValidationError(
+            "initial memory state must be registered by governed infrastructure"
+        )
+    if not isinstance(reason_code, str) or not reason_code.strip():
+        raise ValidationError("reason_code must be non-empty")
+
+    row = connection.execute(
+        "SELECT * FROM records WHERE record_id = ?",
+        (record_id,),
+    ).fetchone()
+    if row is None:
+        raise NotFoundError(f"record not found: {record_id}")
+    record = dict(row)
+    if memory_domain_for(record["record_family"], record["record_type"]) is None:
+        raise ValidationError("record is not registered as an I3 memory record type")
+    if record["lifecycle_state"] not in {"observed", "candidate", "reviewed"}:
+        raise ValidationError("new memory cannot begin in a terminal or active state")
+    if record["approval_status"] not in {"pending", "not_required"}:
+        raise ValidationError("new memory must begin pending or not_required")
+    existing = connection.execute(
+        """
+        SELECT 1 FROM memory_record_lifecycle_transitions
+        WHERE record_id = ?
+        UNION ALL
+        SELECT 1 FROM memory_record_approval_transitions
+        WHERE record_id = ?
+        LIMIT 1
+        """,
+        (record_id, record_id),
+    ).fetchone()
+    if existing is not None:
+        raise ValidationError("initial memory state is already registered")
+
+    lifecycle_material = {
+        "transition_id": lifecycle_transition_id,
+        "record_id": record_id,
+        "sequence_number": 0,
+        "from_state": None,
+        "to_state": record["lifecycle_state"],
+        "reason_code": reason_code,
+        "changed_at": changed_at,
+        "changed_by_principal": changed_by_principal,
+        "changed_by_entity_id": changed_by_entity_id,
+    }
+    lifecycle_canonical = canonical_json_text(lifecycle_material)
+    lifecycle_digest = sha256_canonical_json(lifecycle_material)
+    connection.execute(
+        """
+        INSERT INTO memory_record_lifecycle_transitions (
+            transition_id, record_id, sequence_number, from_state, to_state,
+            reason_code, changed_at, changed_by_principal,
+            changed_by_entity_id, canonical_json, content_hash
+        ) VALUES (?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            lifecycle_transition_id,
+            record_id,
+            record["lifecycle_state"],
+            reason_code,
+            changed_at,
+            changed_by_principal,
+            changed_by_entity_id,
+            lifecycle_canonical,
+            lifecycle_digest,
+        ),
+    )
+
+    approval_material = {
+        "transition_id": approval_transition_id,
+        "record_id": record_id,
+        "sequence_number": 0,
+        "from_status": None,
+        "to_status": record["approval_status"],
+        "reason_code": reason_code,
+        "changed_at": changed_at,
+        "changed_by_principal": changed_by_principal,
+        "changed_by_entity_id": changed_by_entity_id,
+        "approval_grant_id": None,
+        "authority_record_id": None,
+        "approval_evidence_id": None,
+    }
+    approval_canonical = canonical_json_text(approval_material)
+    approval_digest = sha256_canonical_json(approval_material)
+    connection.execute(
+        """
+        INSERT INTO memory_record_approval_transitions (
+            transition_id, record_id, sequence_number, from_status, to_status,
+            reason_code, changed_at, changed_by_principal,
+            changed_by_entity_id, approval_grant_id,
+            authority_record_id, approval_evidence_id,
+            canonical_json, content_hash
+        ) VALUES (?, ?, 0, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
+        """,
+        (
+            approval_transition_id,
+            record_id,
+            record["approval_status"],
+            reason_code,
+            changed_at,
+            changed_by_principal,
+            changed_by_entity_id,
+            approval_canonical,
+            approval_digest,
+        ),
+    )
+
+
+def _governed_supersession_rows(
+    connection: sqlite3.Connection,
+    *,
+    source_record_id: str | None = None,
+    target_record_id: str | None = None,
+) -> list[sqlite3.Row]:
+    if (source_record_id is None) == (target_record_id is None):
+        raise ValueError("exactly one supersession endpoint must be supplied")
+    column = "source_record_id" if source_record_id is not None else "target_record_id"
+    value = source_record_id if source_record_id is not None else target_record_id
+    return list(
+        connection.execute(
+            f"""
+            SELECT relationship.*, source.record_family AS source_family,
+                   source.record_type AS source_type,
+                   source.project_scope_id AS source_project_scope_id,
+                   source.lifecycle_state AS source_lifecycle_state,
+                   source.approval_status AS source_approval_status,
+                   source.integrity_status AS source_integrity_status,
+                   source.supersedes_record_id AS source_supersedes_record_id,
+                   target.record_family AS target_family,
+                   target.record_type AS target_type,
+                   target.project_scope_id AS target_project_scope_id,
+                   target.lifecycle_state AS target_lifecycle_state
+            FROM record_relationships AS relationship
+            JOIN records AS source
+              ON source.record_id = relationship.source_record_id
+            JOIN records AS target
+              ON target.record_id = relationship.target_record_id
+            WHERE relationship.{column} = ?
+              AND relationship.relationship_type = 'supersedes'
+            ORDER BY relationship.relationship_id
+            """,
+            (value,),
+        )
+    )
+
+
+def _project_state_payload(
+    connection: sqlite3.Connection,
+    record_id: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        "SELECT project_id, state_type FROM project_states WHERE record_id = ?",
+        (record_id,),
+    ).fetchone()
+
+
+def _terminology_payload(
+    connection: sqlite3.Connection,
+    record_id: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        "SELECT term, definition_scope_id FROM terminology_definitions WHERE record_id = ?",
+        (record_id,),
+    ).fetchone()
+
+
+def _supersession_payloads_match(
+    connection: sqlite3.Connection,
+    record_type: str,
+    source_record_id: str,
+    target_record_id: str,
+) -> bool:
+    if record_type == "project_state":
+        source = _project_state_payload(connection, source_record_id)
+        target = _project_state_payload(connection, target_record_id)
+        return (
+            source is not None
+            and target is not None
+            and source["project_id"] == target["project_id"]
+            and source["state_type"] == target["state_type"]
+        )
+    if record_type == "terminology_definition":
+        source = _terminology_payload(connection, source_record_id)
+        target = _terminology_payload(connection, target_record_id)
+        return (
+            source is not None
+            and target is not None
+            and source["definition_scope_id"] == target["definition_scope_id"]
+            and normalize_construct_term(source["term"])
+            == normalize_construct_term(target["term"])
+        )
+    return True
+
+
+def _validate_governed_supersession_transition(
+    connection: sqlite3.Connection,
+    record: Mapping[str, Any],
+) -> None:
+    if record["record_family"] != "construct_memory" or record["record_type"] not in {
+        "project_state",
+        "terminology_definition",
+    }:
+        return
+    payload_exists = (
+        _project_state_payload(connection, record["record_id"])
+        if record["record_type"] == "project_state"
+        else _terminology_payload(connection, record["record_id"])
+    )
+    if payload_exists is None:
+        return
+    valid = []
+    for relationship in _governed_supersession_rows(
+        connection,
+        target_record_id=record["record_id"],
+    ):
+        if (
+            relationship["source_family"] == record["record_family"]
+            and relationship["source_type"] == record["record_type"]
+            and relationship["source_project_scope_id"] == record["project_scope_id"]
+            and relationship["source_lifecycle_state"] == "approved"
+            and relationship["source_approval_status"] == "approved"
+            and relationship["source_integrity_status"] == "valid"
+            and relationship["source_supersedes_record_id"] in {
+                None,
+                record["record_id"],
+            }
+            and _supersession_payloads_match(
+                connection,
+                record["record_type"],
+                relationship["source_record_id"],
+                record["record_id"],
+            )
+        ):
+            valid.append(relationship)
+    if len(valid) != 1:
+        raise ValidationError(
+            "Construct supersession requires one approved, governed, type-matching replacement"
+        )
+
+
+def _validate_construct_activation_supersession(
+    connection: sqlite3.Connection,
+    record: Mapping[str, Any],
+) -> None:
+    if record["record_family"] != "construct_memory" or record["record_type"] not in {
+        "project_state",
+        "terminology_definition",
+    }:
+        return
+    if record["record_type"] == "project_state":
+        payload = _project_state_payload(connection, record["record_id"])
+        if payload is None:
+            return
+        duplicate = connection.execute(
+            """
+            SELECT 1
+            FROM project_states AS existing
+            JOIN records AS existing_record
+              ON existing_record.record_id = existing.record_id
+            WHERE existing.project_id = ?
+              AND existing.state_type = ?
+              AND existing.record_id <> ?
+              AND existing_record.lifecycle_state = 'active'
+            LIMIT 1
+            """,
+            (payload["project_id"], payload["state_type"], record["record_id"]),
+        ).fetchone()
+        if duplicate is not None:
+            raise ValidationError(
+                "existing active project state must be superseded before replacement activation"
+            )
+    else:
+        payload = _terminology_payload(connection, record["record_id"])
+        if payload is None:
+            return
+        normalized = normalize_construct_term(payload["term"])
+        for existing in connection.execute(
+            """
+            SELECT definition.record_id, definition.term
+            FROM terminology_definitions AS definition
+            JOIN records AS existing_record
+              ON existing_record.record_id = definition.record_id
+            WHERE definition.definition_scope_id = ?
+              AND definition.record_id <> ?
+              AND existing_record.lifecycle_state = 'active'
+            """,
+            (payload["definition_scope_id"], record["record_id"]),
+        ):
+            if normalize_construct_term(existing["term"]) == normalized:
+                raise ValidationError(
+                    "existing active terminology definition must be superseded before replacement activation"
+                )
+
+    outgoing = _governed_supersession_rows(
+        connection,
+        source_record_id=record["record_id"],
+    )
+    declared_target = record["supersedes_record_id"]
+    if declared_target is None and not outgoing:
+        return
+    if len(outgoing) != 1:
+        raise ValidationError(
+            "Construct replacement activation requires one exact governed supersession"
+        )
+    relationship = outgoing[0]
+    if declared_target is not None and relationship["target_record_id"] != declared_target:
+        raise ValidationError(
+            "supersedes_record_id does not match the governed supersession relationship"
+        )
+    if (
+        relationship["target_family"] != record["record_family"]
+        or relationship["target_type"] != record["record_type"]
+        or relationship["target_project_scope_id"] != record["project_scope_id"]
+        or relationship["target_lifecycle_state"] != "superseded"
+        or not _supersession_payloads_match(
+            connection,
+            record["record_type"],
+            record["record_id"],
+            relationship["target_record_id"],
+        )
+    ):
+        raise ValidationError(
+            "Construct replacement target must be a matching superseded record"
+        )
 
 
 class MemoryKernel:
@@ -82,120 +484,18 @@ class MemoryKernel:
     ) -> None:
         """Record the immutable initial lifecycle and approval state for a memory."""
 
-        validate_identifier(record_id, field="record_id")
-        validate_identifier(
-            lifecycle_transition_id,
-            field="lifecycle_transition_id",
+        self._kernel.write(
+            lambda connection: _insert_initial_memory_state(
+                connection,
+                record_id,
+                lifecycle_transition_id=lifecycle_transition_id,
+                approval_transition_id=approval_transition_id,
+                changed_at=changed_at,
+                changed_by_principal=changed_by_principal,
+                reason_code=reason_code,
+                changed_by_entity_id=changed_by_entity_id,
+            )
         )
-        validate_identifier(
-            approval_transition_id,
-            field="approval_transition_id",
-        )
-        parse_canonical_utc(changed_at, field="changed_at")
-        if changed_by_entity_id is not None:
-            validate_identifier(changed_by_entity_id, field="changed_by_entity_id")
-        if changed_by_principal not in {
-            "operator",
-            "codex_development_harness",
-        }:
-            raise ValidationError(
-                "initial memory state must be registered by governed infrastructure"
-            )
-        if not isinstance(reason_code, str) or not reason_code.strip():
-            raise ValidationError("reason_code must be non-empty")
-
-        def operation(connection: sqlite3.Connection) -> None:
-            record = self._record(connection, record_id)
-            if record["lifecycle_state"] not in {"observed", "candidate", "reviewed"}:
-                raise ValidationError("new memory cannot begin in a terminal or active state")
-            if record["approval_status"] not in {"pending", "not_required"}:
-                raise ValidationError("new memory must begin pending or not_required")
-            existing = connection.execute(
-                """
-                SELECT 1 FROM memory_record_lifecycle_transitions
-                WHERE record_id = ?
-                UNION ALL
-                SELECT 1 FROM memory_record_approval_transitions
-                WHERE record_id = ?
-                LIMIT 1
-                """,
-                (record_id, record_id),
-            ).fetchone()
-            if existing is not None:
-                raise ValidationError("initial memory state is already registered")
-
-            lifecycle_material = {
-                "transition_id": lifecycle_transition_id,
-                "record_id": record_id,
-                "sequence_number": 0,
-                "from_state": None,
-                "to_state": record["lifecycle_state"],
-                "reason_code": reason_code,
-                "changed_at": changed_at,
-                "changed_by_principal": changed_by_principal,
-                "changed_by_entity_id": changed_by_entity_id,
-            }
-            canonical, digest = self._audit_values(lifecycle_material)
-            connection.execute(
-                """
-                INSERT INTO memory_record_lifecycle_transitions (
-                    transition_id, record_id, sequence_number, from_state, to_state,
-                    reason_code, changed_at, changed_by_principal,
-                    changed_by_entity_id, canonical_json, content_hash
-                ) VALUES (?, ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    lifecycle_transition_id,
-                    record_id,
-                    record["lifecycle_state"],
-                    reason_code,
-                    changed_at,
-                    changed_by_principal,
-                    changed_by_entity_id,
-                    canonical,
-                    digest,
-                ),
-            )
-
-            approval_material = {
-                "transition_id": approval_transition_id,
-                "record_id": record_id,
-                "sequence_number": 0,
-                "from_status": None,
-                "to_status": record["approval_status"],
-                "reason_code": reason_code,
-                "changed_at": changed_at,
-                "changed_by_principal": changed_by_principal,
-                "changed_by_entity_id": changed_by_entity_id,
-                "approval_grant_id": None,
-                "authority_record_id": None,
-                "approval_evidence_id": None,
-            }
-            canonical, digest = self._audit_values(approval_material)
-            connection.execute(
-                """
-                INSERT INTO memory_record_approval_transitions (
-                    transition_id, record_id, sequence_number, from_status, to_status,
-                    reason_code, changed_at, changed_by_principal,
-                    changed_by_entity_id, approval_grant_id,
-                    authority_record_id, approval_evidence_id,
-                    canonical_json, content_hash
-                ) VALUES (?, ?, 0, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)
-                """,
-                (
-                    approval_transition_id,
-                    record_id,
-                    record["approval_status"],
-                    reason_code,
-                    changed_at,
-                    changed_by_principal,
-                    changed_by_entity_id,
-                    canonical,
-                    digest,
-                ),
-            )
-
-        self._kernel.write(operation)
 
     def transition_lifecycle(
         self,
@@ -233,6 +533,8 @@ class MemoryKernel:
                     raise ValidationError(
                         "Apprentice lifecycle writes are limited to candidate-only records"
                     )
+            if to_state == "superseded":
+                _validate_governed_supersession_transition(connection, record)
             if to_state == "active":
                 if record["approval_status"] not in {"approved", "not_required"}:
                     raise ValidationError("active memory requires eligible approval status")
@@ -248,6 +550,7 @@ class MemoryKernel:
                 ).fetchone()["value"]
                 if int(evidence_count) < 1:
                     raise ValidationError("active memory requires linked evidence")
+                _validate_construct_activation_supersession(connection, record)
 
             sequence = self._next_sequence(
                 connection,
@@ -391,10 +694,7 @@ class MemoryKernel:
             record = self._record(connection, grant.record_id)
             if record["project_scope_id"] != grant.project_scope_id:
                 raise ValidationError("approval grant has the wrong project scope")
-            allowed = approval_authority_classes_for(
-                record["record_family"],
-                record["record_type"],
-            )
+            allowed = _approval_authority_classes_for_record(connection, record)
             if not allowed:
                 raise ValidationError(
                     "this memory type does not accept an external approval grant"
@@ -505,10 +805,7 @@ class MemoryKernel:
                 raise ValidationError(
                     "memory approval grant does not match this exact transition"
                 )
-            allowed = approval_authority_classes_for(
-                record["record_family"],
-                record["record_type"],
-            )
+            allowed = _approval_authority_classes_for_record(connection, record)
             authority = self._validate_authority_evidence(
                 connection,
                 authority_record_id=grant["authority_record_id"],

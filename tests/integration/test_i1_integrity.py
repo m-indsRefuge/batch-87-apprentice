@@ -33,7 +33,7 @@ def test_clean_database_integrity_report_is_error_free(tmp_path: Path) -> None:
     report = service.integrity.inspect()
 
     assert report.ok
-    assert report.migration_count == 5
+    assert report.migration_count == 6
     assert report.error_count == 0
     assert report.warning_count == 0
 
