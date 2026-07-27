@@ -45,6 +45,25 @@ from .construct_integrity import (
 )
 from .construct_repository import ConstructMemoryRepository
 from .eligibility import evaluate_memory_eligibility
+from .episode_correction_contracts import (
+    CORRECTION_ISSUER_CLASSES,
+    CORRECTION_SEVERITIES,
+    C2_PAYLOAD_TABLES,
+    EPISODE_KINDS,
+    EPISODE_OUTCOMES,
+    CorrectionPayload,
+    EpisodePayload,
+    correction_content_hash,
+    episode_content_hash,
+    validate_correction_pair,
+    validate_episode_pair,
+)
+from .episode_correction_integrity import (
+    EpisodeCorrectionIntegrityFinding,
+    EpisodeCorrectionIntegrityInspector,
+    EpisodeCorrectionIntegrityReport,
+)
+from .episode_correction_repository import EpisodeCorrectionLedgerRepository
 from .integrity import (
     MemoryIntegrityFinding,
     MemoryIntegrityInspector,
@@ -88,10 +107,15 @@ __all__ = [
     "CONSTRUCT_PAYLOAD_TABLES",
     "CONSTRUCT_PAYLOAD_TYPES",
     "CONSTRUCT_RELATIONSHIP_POLICIES",
+    "CORRECTION_ISSUER_CLASSES",
+    "CORRECTION_SEVERITIES",
+    "C2_PAYLOAD_TABLES",
     "DEVELOPMENTAL_POLICY_KINDS",
     "ELIGIBILITY_REASON_ORDER",
     "EVALUATION_ANCHOR_STATES",
     "EVALUATION_KINDS",
+    "EPISODE_KINDS",
+    "EPISODE_OUTCOMES",
     "FACTUAL_SELF_PAYLOAD_TABLES",
     "FACTUAL_SELF_PAYLOAD_TYPES",
     "GOVERNED_RELATIONSHIP_TYPES",
@@ -115,8 +139,14 @@ __all__ = [
     "ConstructIntegrityReport",
     "ConstructMemoryRepository",
     "ConstructRelationshipPayload",
+    "CorrectionPayload",
     "DevelopmentalPolicyVersion",
     "EvaluationReferenceAnchor",
+    "EpisodeCorrectionIntegrityFinding",
+    "EpisodeCorrectionIntegrityInspector",
+    "EpisodeCorrectionIntegrityReport",
+    "EpisodeCorrectionLedgerRepository",
+    "EpisodePayload",
     "MemoryApprovalGrant",
     "MemoryIntegrityFinding",
     "MemoryIntegrityInspector",
@@ -138,6 +168,8 @@ __all__ = [
     "TrustedRuntimeAttestor",
     "approval_authority_classes_for",
     "construct_memory_content_hash",
+    "correction_content_hash",
+    "episode_content_hash",
     "normalize_construct_term",
     "evaluate_memory_eligibility",
     "factual_self_content_hash",
@@ -147,5 +179,7 @@ __all__ = [
     "validate_approval_transition",
     "validate_lifecycle_transition",
     "validate_construct_pair",
+    "validate_correction_pair",
+    "validate_episode_pair",
     "validate_factual_self_pair",
 ]
