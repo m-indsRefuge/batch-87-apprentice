@@ -159,6 +159,7 @@ class IntegrityInspector:
         self._inspect_task_runtime(connection, findings)
         self._inspect_construct_memory(connection, findings)
         self._inspect_self_episodic_memory(connection, findings)
+        self._inspect_episode_correction_memory(connection, findings)
 
     @staticmethod
     def _inspect_construct_memory(
@@ -196,6 +197,26 @@ class IntegrityInspector:
                 severity=finding.severity,
                 code="self_episodic_" + finding.code.lower().replace("-", "_"),
                 table=finding.table,
+                object_id=finding.record_id,
+                detail=finding.detail,
+            )
+
+    @staticmethod
+    def _inspect_episode_correction_memory(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        from batch87_apprentice.memory.episode_correction_integrity import (
+            EpisodeCorrectionIntegrityInspector,
+        )
+
+        report = EpisodeCorrectionIntegrityInspector._inspect_connection(connection)
+        for finding in report.findings:
+            _finding(
+                findings,
+                severity=finding.severity,
+                code="episode_correction_" + finding.code.lower().replace("-", "_"),
+                table="episode_correction_ledger",
                 object_id=finding.record_id,
                 detail=finding.detail,
             )
@@ -422,6 +443,13 @@ class IntegrityInspector:
             factual_self_content_hash,
             payload_from_database as factual_self_payload_from_database,
         )
+        from batch87_apprentice.memory.episode_correction_contracts import (
+            C2_PAYLOAD_TABLES,
+            correction_content_hash,
+            correction_from_database,
+            episode_content_hash,
+            episode_from_database,
+        )
 
         payloads = {
             row["record_id"]: row
@@ -505,6 +533,84 @@ class IntegrityInspector:
                         expected = factual_self_content_hash(
                             envelope,
                             factual_payload,
+                        )
+                elif (
+                    row["record_family"] == "episodic_memory"
+                    and row["record_type"] in C2_PAYLOAD_TABLES
+                    and connection.execute(
+                        """
+                        SELECT 1 FROM sqlite_master
+                        WHERE type = 'table' AND name = ?
+                        """,
+                        (C2_PAYLOAD_TABLES[row["record_type"]],),
+                    ).fetchone()
+                    is not None
+                ):
+                    c2_row = connection.execute(
+                        f"""
+                        SELECT * FROM {C2_PAYLOAD_TABLES[row['record_type']]}
+                        WHERE record_id = ?
+                        """,
+                        (record_id,),
+                    ).fetchone()
+                    if c2_row is None:
+                        expected = record_content_hash(envelope)
+                    elif row["record_type"] == "episode":
+                        inputs = tuple(
+                            item["evidence_id"]
+                            for item in connection.execute(
+                                """
+                                SELECT evidence_id FROM episode_input_evidence
+                                WHERE record_id = ? ORDER BY evidence_order
+                                """,
+                                (record_id,),
+                            )
+                        )
+                        outputs = tuple(
+                            item["evidence_id"]
+                            for item in connection.execute(
+                                """
+                                SELECT evidence_id FROM episode_output_evidence
+                                WHERE record_id = ? ORDER BY evidence_order
+                                """,
+                                (record_id,),
+                            )
+                        )
+                        evaluations = tuple(
+                            item["evaluation_record_id"]
+                            for item in connection.execute(
+                                """
+                                SELECT evaluation_record_id
+                                FROM episode_evaluation_anchors
+                                WHERE record_id = ? ORDER BY evaluation_order
+                                """,
+                                (record_id,),
+                            )
+                        )
+                        c2_payload = episode_from_database(
+                            dict(c2_row),
+                            input_evidence_ids=inputs,
+                            output_evidence_ids=outputs,
+                            evaluation_record_ids=evaluations,
+                        )
+                        expected = episode_content_hash(envelope, c2_payload)
+                    else:
+                        support = tuple(
+                            item["evidence_id"]
+                            for item in connection.execute(
+                                """
+                                SELECT evidence_id
+                                FROM correction_supporting_evidence
+                                WHERE record_id = ? ORDER BY evidence_order
+                                """,
+                                (record_id,),
+                            )
+                        )
+                        c2_payload = correction_from_database(dict(c2_row))
+                        expected = correction_content_hash(
+                            envelope,
+                            c2_payload,
+                            support,
                         )
                 else:
                     expected = record_content_hash(envelope)

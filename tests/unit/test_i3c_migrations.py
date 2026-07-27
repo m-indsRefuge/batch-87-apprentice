@@ -32,6 +32,9 @@ EXPECTED_ACCEPTED_HASHES = {
     "0006_construct_relational_memory.sql": (
         "322cbcb0b67fb25a7de68ba4f29d1b349f3f79ac96cbc2de7d51155d57f81fdf"
     ),
+    "0007_self_episodic_memory.sql": (
+        "17812d04e60cf5f3f9451e2515179b79dbb264a253c359d439d71c8e79a057ca"
+    ),
 }
 C1_TABLES = {
     "governed_evaluation_record_anchors",
@@ -78,8 +81,10 @@ def rows(database_path: Path, table: str) -> tuple[tuple[object, ...], ...]:
 def test_fresh_database_applies_through_0007_without_active_policy(
     tmp_path: Path,
 ) -> None:
+    migration_directory = tmp_path / "migrations"
+    copy_migrations(migration_directory, through=7)
     config = DatabaseConfig(tmp_path / "fresh.sqlite3")
-    migrations = MigrationRunner(config).apply_all()
+    migrations = MigrationRunner(config, migration_directory).apply_all()
 
     assert [migration.version for migration in migrations] == list(range(1, 8))
     assert migrations[-1].filename == "0007_self_episodic_memory.sql"
@@ -255,7 +260,7 @@ def test_policy_and_memory_registries_reject_post_seed_mutation(
         connection.close()
 
 
-def test_migrations_0001_through_0006_remain_byte_identical() -> None:
+def test_migrations_0001_through_0007_remain_byte_identical() -> None:
     for filename, expected_hash in EXPECTED_ACCEPTED_HASHES.items():
         actual = sha256_bytes(
             (default_migrations_path() / filename).read_bytes()
