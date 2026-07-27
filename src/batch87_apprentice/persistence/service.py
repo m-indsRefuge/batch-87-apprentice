@@ -32,6 +32,12 @@ class PersistenceService:
         from batch87_apprentice.memory.episode_correction_integrity import (
             EpisodeCorrectionIntegrityInspector,
         )
+        from batch87_apprentice.memory.developmental_derivation_integrity import (
+            DevelopmentalDerivationIntegrityInspector,
+        )
+        from batch87_apprentice.memory.developmental_derivation_repository import (
+            DevelopmentalDerivationRepository,
+        )
         from batch87_apprentice.memory.episode_correction_repository import (
             EpisodeCorrectionLedgerRepository,
         )
@@ -58,6 +64,10 @@ class PersistenceService:
         self.construct_integrity = ConstructIntegrityInspector(kernel)
         self.episode_correction_ledger = EpisodeCorrectionLedgerRepository(kernel)
         self.episode_correction_integrity = EpisodeCorrectionIntegrityInspector(kernel)
+        self.developmental_derivation = DevelopmentalDerivationRepository(kernel)
+        self.developmental_derivation_integrity = (
+            DevelopmentalDerivationIntegrityInspector(kernel)
+        )
         self.self_episodic_memory = SelfEpisodicMemoryRepository(kernel)
         self.permission_profile_projection = PermissionProfileProjection(config)
         self.self_episodic_integrity = SelfEpisodicIntegrityInspector(kernel)

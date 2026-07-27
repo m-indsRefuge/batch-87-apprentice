@@ -620,14 +620,22 @@ def test_file_reopen_and_separate_process_reconstruct_exact_c2_records(
         "'episode_hash':e['content_hash'],"
         "'correction_hash':c['content_hash']},sort_keys=True))"
     )
+    repository_root = Path(__file__).resolve().parents[2]
+    source_root = repository_root / "src"
+    existing_pythonpath = os.environ.get("PYTHONPATH")
+    pythonpath_entries = [str(source_root)]
+    if existing_pythonpath:
+        pythonpath_entries.append(existing_pythonpath)
+
     environment = {
         **os.environ,
+        "PYTHONPATH": os.pathsep.join(pythonpath_entries),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONUTF8": "1",
     }
     completed = subprocess.run(
         [sys.executable, "-c", script],
-        cwd=Path(__file__).parents[2],
+        cwd=repository_root,
         env=environment,
         capture_output=True,
         text=True,

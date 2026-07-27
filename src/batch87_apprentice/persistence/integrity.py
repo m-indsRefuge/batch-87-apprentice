@@ -160,6 +160,7 @@ class IntegrityInspector:
         self._inspect_construct_memory(connection, findings)
         self._inspect_self_episodic_memory(connection, findings)
         self._inspect_episode_correction_memory(connection, findings)
+        self._inspect_developmental_derivation(connection, findings)
 
     @staticmethod
     def _inspect_construct_memory(
@@ -217,6 +218,31 @@ class IntegrityInspector:
                 severity=finding.severity,
                 code="episode_correction_" + finding.code.lower().replace("-", "_"),
                 table="episode_correction_ledger",
+                object_id=finding.record_id,
+                detail=finding.detail,
+            )
+
+    @staticmethod
+    def _inspect_developmental_derivation(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        from batch87_apprentice.memory.developmental_derivation_integrity import (
+            DevelopmentalDerivationIntegrityInspector,
+        )
+
+        report = DevelopmentalDerivationIntegrityInspector._inspect_connection(
+            connection
+        )
+        for finding in report.findings:
+            _finding(
+                findings,
+                severity=finding.severity,
+                code=(
+                    "developmental_derivation_"
+                    + finding.code.lower().replace("-", "_")
+                ),
+                table=finding.table,
                 object_id=finding.record_id,
                 detail=finding.detail,
             )
@@ -450,6 +476,13 @@ class IntegrityInspector:
             episode_content_hash,
             episode_from_database,
         )
+        from batch87_apprentice.memory.developmental_derivation_contracts import (
+            C3_PAYLOAD_TABLES,
+            developmental_content_hash,
+        )
+        from batch87_apprentice.memory.developmental_derivation_repository import (
+            DevelopmentalDerivationRepository,
+        )
 
         payloads = {
             row["record_id"]: row
@@ -611,6 +644,36 @@ class IntegrityInspector:
                             envelope,
                             c2_payload,
                             support,
+                        )
+                elif (
+                    row["record_family"] == "episodic_memory"
+                    and row["record_type"] in C3_PAYLOAD_TABLES
+                    and connection.execute(
+                        """
+                        SELECT 1 FROM sqlite_master
+                        WHERE type = 'table' AND name = ?
+                        """,
+                        (C3_PAYLOAD_TABLES[row["record_type"]],),
+                    ).fetchone()
+                    is not None
+                ):
+                    c3_row = connection.execute(
+                        f"""
+                        SELECT 1 FROM {C3_PAYLOAD_TABLES[row['record_type']]}
+                        WHERE record_id = ?
+                        """,
+                        (record_id,),
+                    ).fetchone()
+                    if c3_row is None:
+                        expected = record_content_hash(envelope)
+                    else:
+                        c3_payload = (
+                            DevelopmentalDerivationRepository
+                            ._payload_from_connection(connection, row)
+                        )
+                        expected = developmental_content_hash(
+                            envelope,
+                            c3_payload,
                         )
                 else:
                     expected = record_content_hash(envelope)
