@@ -50,6 +50,12 @@ class PersistenceService:
         from batch87_apprentice.memory.self_model_projection import (
             PermissionProfileProjection,
         )
+        from batch87_apprentice.memory.session_task_integrity import (
+            SessionTaskIntegrityInspector,
+        )
+        from batch87_apprentice.memory.session_task_repository import (
+            SessionTaskMemoryRepository,
+        )
 
         self.config = config
         kernel = PersistenceKernel(config)
@@ -71,6 +77,8 @@ class PersistenceService:
         self.self_episodic_memory = SelfEpisodicMemoryRepository(kernel)
         self.permission_profile_projection = PermissionProfileProjection(config)
         self.self_episodic_integrity = SelfEpisodicIntegrityInspector(kernel)
+        self.session_task_memory = SessionTaskMemoryRepository(config)
+        self.session_task_integrity = SessionTaskIntegrityInspector(kernel)
         self.integrity = IntegrityInspector(kernel)
 
     @classmethod

@@ -121,6 +121,28 @@ from .self_episodic_integrity import (
 )
 from .self_episodic_repository import SelfEpisodicMemoryRepository
 from .self_model_projection import PermissionProfileProjection
+from .session_task_contracts import (
+    CONTEXT_KINDS,
+    CONTEXT_SOURCE_KINDS,
+    SESSION_TASK_CREATION_PRINCIPALS,
+    TASK_MEMORY_MODES,
+    TASK_MEMORY_REASON_ORDER,
+    UNCERTAINTY_IMPACTS,
+    ActiveUncertaintyPayload,
+    TaskContextFinalization,
+    TaskContextItem,
+    TaskMemoryEligibilityDecision,
+    TypedSourceReference,
+    UncertaintyResolution,
+    active_uncertainty_content_hash,
+    validate_active_uncertainty_pair,
+)
+from .session_task_integrity import (
+    SessionTaskIntegrityFinding,
+    SessionTaskIntegrityInspector,
+    SessionTaskIntegrityReport,
+)
+from .session_task_repository import SessionTaskMemoryRepository
 
 __all__ = [
     "APPROVAL_TRANSITIONS",
@@ -131,6 +153,8 @@ __all__ = [
     "CONSTRUCT_PAYLOAD_TABLES",
     "CONSTRUCT_PAYLOAD_TYPES",
     "CONSTRUCT_RELATIONSHIP_POLICIES",
+    "CONTEXT_KINDS",
+    "CONTEXT_SOURCE_KINDS",
     "CORRECTION_ISSUER_CLASSES",
     "CORRECTION_SEVERITIES",
     "C2_PAYLOAD_TABLES",
@@ -157,7 +181,12 @@ __all__ = [
     "MEMORY_RELATIONSHIP_OPERATION",
     "NOLAN_INCLUSIVE_AUTHORITY_CLASSES",
     "RELATIONSHIP_TYPES",
+    "SESSION_TASK_CREATION_PRINCIPALS",
     "SUCCESS_PATTERN_STABILITIES",
+    "TASK_MEMORY_MODES",
+    "TASK_MEMORY_REASON_ORDER",
+    "UNCERTAINTY_IMPACTS",
+    "ActiveUncertaintyPayload",
     "ApprovedLessonPayload",
     "EligibilityContext",
     "EligibilityDecision",
@@ -201,9 +230,19 @@ __all__ = [
     "SelfEpisodicIntegrityInspector",
     "SelfEpisodicIntegrityReport",
     "SelfEpisodicMemoryRepository",
+    "SessionTaskIntegrityFinding",
+    "SessionTaskIntegrityInspector",
+    "SessionTaskIntegrityReport",
+    "SessionTaskMemoryRepository",
     "SuccessPatternPayload",
+    "TaskContextFinalization",
+    "TaskContextItem",
+    "TaskMemoryEligibilityDecision",
     "TerminologyDefinitionPayload",
     "TrustedRuntimeAttestor",
+    "TypedSourceReference",
+    "UncertaintyResolution",
+    "active_uncertainty_content_hash",
     "approval_authority_classes_for",
     "construct_memory_content_hash",
     "correction_content_hash",
@@ -222,4 +261,5 @@ __all__ = [
     "validate_developmental_pair",
     "validate_episode_pair",
     "validate_factual_self_pair",
+    "validate_active_uncertainty_pair",
 ]
