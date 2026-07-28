@@ -61,8 +61,10 @@ ACCEPTED_MIGRATION_HASHES = {
 
 
 def test_fresh_database_applies_exactly_through_0009(tmp_path: Path) -> None:
+    migration_directory = tmp_path / "migrations"
+    copy_migrations(migration_directory, through=9)
     config = DatabaseConfig(tmp_path / "fresh.sqlite3")
-    migrations = MigrationRunner(config).apply_all()
+    migrations = MigrationRunner(config, migration_directory).apply_all()
 
     assert [item.version for item in migrations] == list(range(1, 10))
     assert migrations[-1].filename == "0009_developmental_derivation.sql"

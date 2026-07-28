@@ -67,7 +67,7 @@ def test_fresh_database_applies_exact_order_and_ledger_hash(tmp_path: Path) -> N
 
     migrations = runner.apply_all()
 
-    assert [migration.version for migration in migrations] == list(range(1, 10))
+    assert [migration.version for migration in migrations] == list(range(1, 11))
     assert migrations[5].filename == "0006_construct_relational_memory.sql"
     assert I3B_TABLES <= table_names(config.path)
     connection = sqlite3.connect(config.path)

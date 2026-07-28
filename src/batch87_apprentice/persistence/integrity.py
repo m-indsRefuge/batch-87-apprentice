@@ -41,6 +41,19 @@ class IntegrityFinding:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskRuntimeIntegrityFinding:
+    """An accepted I2 integrity finding with exact task/session attribution."""
+
+    code: str
+    severity: str
+    table: str
+    object_id: str | None
+    task_id: str | None
+    session_id: str | None
+    detail: str
+
+
+@dataclass(frozen=True, slots=True)
 class IntegrityReport:
     database_path: str
     migration_count: int
@@ -161,6 +174,7 @@ class IntegrityInspector:
         self._inspect_self_episodic_memory(connection, findings)
         self._inspect_episode_correction_memory(connection, findings)
         self._inspect_developmental_derivation(connection, findings)
+        self._inspect_session_task_memory(connection, findings)
 
     @staticmethod
     def _inspect_construct_memory(
@@ -244,6 +258,28 @@ class IntegrityInspector:
                 ),
                 table=finding.table,
                 object_id=finding.record_id,
+                detail=finding.detail,
+            )
+
+    @staticmethod
+    def _inspect_session_task_memory(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        from batch87_apprentice.memory.session_task_integrity import (
+            SessionTaskIntegrityInspector,
+        )
+
+        report = SessionTaskIntegrityInspector._inspect_connection(connection)
+        for finding in report.findings:
+            if finding.source == "i2":
+                continue
+            _finding(
+                findings,
+                severity=finding.severity,
+                code="session_task_" + finding.code.lower().replace("-", "_"),
+                table=finding.table,
+                object_id=finding.object_id,
                 detail=finding.detail,
             )
 
@@ -483,6 +519,10 @@ class IntegrityInspector:
         from batch87_apprentice.memory.developmental_derivation_repository import (
             DevelopmentalDerivationRepository,
         )
+        from batch87_apprentice.memory.session_task_contracts import (
+            ActiveUncertaintyPayload,
+            active_uncertainty_content_hash,
+        )
 
         payloads = {
             row["record_id"]: row
@@ -674,6 +714,48 @@ class IntegrityInspector:
                         expected = developmental_content_hash(
                             envelope,
                             c3_payload,
+                        )
+                elif (
+                    row["record_family"] == "session_task_memory"
+                    and row["record_type"] == "active_uncertainty"
+                    and connection.execute(
+                        """
+                        SELECT 1 FROM sqlite_master
+                        WHERE type = 'table' AND name = 'active_uncertainties'
+                        """
+                    ).fetchone()
+                    is not None
+                ):
+                    uncertainty_row = connection.execute(
+                        """
+                        SELECT * FROM active_uncertainties
+                        WHERE record_id = ?
+                        """,
+                        (record_id,),
+                    ).fetchone()
+                    if uncertainty_row is None:
+                        expected = record_content_hash(envelope)
+                    else:
+                        uncertainty = ActiveUncertaintyPayload(
+                            record_id=uncertainty_row["record_id"],
+                            task_id=uncertainty_row["task_id"],
+                            session_id=uncertainty_row["session_id"],
+                            project_scope_id=uncertainty_row["project_scope_id"],
+                            uncertainty_statement=uncertainty_row[
+                                "uncertainty_statement"
+                            ],
+                            impact=uncertainty_row["impact"],
+                            resolution_required=bool(
+                                uncertainty_row["resolution_required"]
+                            ),
+                            created_at=uncertainty_row["created_at"],
+                            created_by_principal=uncertainty_row[
+                                "created_by_principal"
+                            ],
+                        )
+                        expected = active_uncertainty_content_hash(
+                            envelope,
+                            uncertainty,
                         )
                 else:
                     expected = record_content_hash(envelope)
@@ -936,6 +1018,34 @@ class IntegrityInspector:
 
     @staticmethod
     def _inspect_task_runtime(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        """Expose the shared I2 projection through the accepted top-level shape."""
+
+        seen: set[tuple[str, str, str, str | None, str]] = set()
+        for finding in inspect_task_runtime_integrity(connection):
+            identity = (
+                finding.severity,
+                finding.code,
+                finding.table,
+                finding.object_id,
+                finding.detail,
+            )
+            if identity in seen:
+                continue
+            seen.add(identity)
+            _finding(
+                findings,
+                severity=finding.severity,
+                code=finding.code,
+                table=finding.table,
+                object_id=finding.object_id,
+                detail=finding.detail,
+            )
+
+    @staticmethod
+    def _inspect_task_runtime_raw(
         connection: sqlite3.Connection,
         findings: list[IntegrityFinding],
     ) -> None:
@@ -1487,3 +1597,258 @@ class IntegrityInspector:
                     object_id=transaction_id,
                     detail="transaction digest differs from canonical reconstruction",
                 )
+
+
+def _task_runtime_task_target(
+    connection: sqlite3.Connection,
+    task_id: str,
+) -> tuple[str, str | None]:
+    row = connection.execute(
+        "SELECT session_id FROM tasks WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    return task_id, None if row is None else row["session_id"]
+
+
+def _task_runtime_decision_targets(
+    connection: sqlite3.Connection,
+    query: str,
+    parameters: tuple[Any, ...],
+) -> set[tuple[str, str | None]]:
+    return {
+        (row["task_id"], row["session_id"])
+        for row in connection.execute(query, parameters)
+    }
+
+
+def _task_runtime_finding_targets(
+    connection: sqlite3.Connection,
+    finding: IntegrityFinding,
+) -> set[tuple[str | None, str | None]]:
+    """Resolve only authoritative I2 relationships; never infer broad scope."""
+
+    object_id = finding.object_id
+    if object_id is None:
+        return {(None, None)}
+
+    if finding.table in {"sessions", "session_state_transitions"}:
+        return {(None, object_id)}
+
+    if finding.table in {"tasks", "task_state_transitions"}:
+        return {_task_runtime_task_target(connection, object_id)}
+
+    if finding.table == "governed_runtime_transactions":
+        row = connection.execute(
+            """
+            SELECT transaction_record.task_id, task.session_id
+            FROM governed_runtime_transactions AS transaction_record
+            LEFT JOIN tasks AS task
+              ON task.task_id = transaction_record.task_id
+            WHERE transaction_record.transaction_id = ?
+            """,
+            (object_id,),
+        ).fetchone()
+        return (
+            {(None, None)}
+            if row is None
+            else {(row["task_id"], row["session_id"])}
+        )
+
+    if finding.table in {
+        "governance_decisions",
+        "governance_decision_authority_inputs",
+        "governance_decision_human_approvals",
+        "governance_decision_evidence",
+        "governance_decision_rules",
+    }:
+        targets = _task_runtime_decision_targets(
+            connection,
+            """
+            SELECT task_id, session_id
+            FROM governance_decisions
+            WHERE governance_decision_id = ?
+            """,
+            (object_id,),
+        )
+        return targets or {(None, None)}
+
+    if finding.table == "task_stop_events":
+        row = connection.execute(
+            """
+            SELECT stop.task_id, task.session_id
+            FROM task_stop_events AS stop
+            LEFT JOIN tasks AS task ON task.task_id = stop.task_id
+            WHERE stop.stop_event_id = ?
+            """,
+            (object_id,),
+        ).fetchone()
+        return (
+            {(None, None)}
+            if row is None
+            else {(row["task_id"], row["session_id"])}
+        )
+
+    if finding.table == "permission_profiles":
+        targets = _task_runtime_decision_targets(
+            connection,
+            """
+            SELECT task_id, session_id
+            FROM governance_decisions
+            WHERE permission_profile_id = ?
+            ORDER BY task_id
+            """,
+            (object_id,),
+        )
+        return targets or {(None, None)}
+
+    if finding.table == "operation_definitions":
+        targets = _task_runtime_decision_targets(
+            connection,
+            """
+            SELECT task_id, session_id
+            FROM governance_decisions
+            WHERE requested_operation = ?
+            ORDER BY task_id
+            """,
+            (object_id,),
+        )
+        return targets or {(None, None)}
+
+    if finding.table == "governance_rules":
+        targets = _task_runtime_decision_targets(
+            connection,
+            """
+            SELECT decision_record.task_id, decision_record.session_id
+            FROM governance_decision_rules AS relationship
+            JOIN governance_decisions AS decision_record
+              ON decision_record.governance_decision_id =
+                 relationship.governance_decision_id
+            WHERE relationship.governance_rule_id = ?
+            ORDER BY decision_record.task_id
+            """,
+            (object_id,),
+        )
+        return targets or {(None, None)}
+
+    if finding.table in {
+        "authority_records",
+        "authority_revocations",
+        "authority_record_evidence",
+    }:
+        targets = _task_runtime_decision_targets(
+            connection,
+            """
+            SELECT DISTINCT decision_record.task_id, decision_record.session_id
+            FROM governance_decision_authority_inputs AS relationship
+            JOIN governance_decisions AS decision_record
+              ON decision_record.governance_decision_id =
+                 relationship.governance_decision_id
+            WHERE relationship.claimed_authority_id = ?
+               OR relationship.resolved_authority_record_id = ?
+            ORDER BY decision_record.task_id
+            """,
+            (object_id, object_id),
+        )
+        direct = connection.execute(
+            """
+            SELECT task_id
+            FROM authority_records
+            WHERE authority_record_id = ? AND task_id IS NOT NULL
+            """,
+            (object_id,),
+        ).fetchone()
+        if direct is not None:
+            targets.add(
+                _task_runtime_task_target(connection, direct["task_id"])
+            )
+        return targets or {(None, None)}
+
+    if finding.table in {
+        "human_approvals",
+        "human_approval_evidence",
+    }:
+        targets = _task_runtime_decision_targets(
+            connection,
+            """
+            SELECT DISTINCT decision_record.task_id, decision_record.session_id
+            FROM governance_decision_human_approvals AS relationship
+            JOIN governance_decisions AS decision_record
+              ON decision_record.governance_decision_id =
+                 relationship.governance_decision_id
+            WHERE relationship.claimed_human_approval_id = ?
+               OR relationship.resolved_human_approval_id = ?
+            ORDER BY decision_record.task_id
+            """,
+            (object_id, object_id),
+        )
+        approval = connection.execute(
+            """
+            SELECT task_id, consumed_by_task_id, consumed_by_decision_id
+            FROM human_approvals
+            WHERE human_approval_id = ?
+            """,
+            (object_id,),
+        ).fetchone()
+        if approval is not None:
+            for task_id in (
+                approval["task_id"],
+                approval["consumed_by_task_id"],
+            ):
+                if task_id is not None:
+                    targets.add(
+                        _task_runtime_task_target(connection, task_id)
+                    )
+            if approval["consumed_by_decision_id"] is not None:
+                targets.update(
+                    _task_runtime_decision_targets(
+                        connection,
+                        """
+                        SELECT task_id, session_id
+                        FROM governance_decisions
+                        WHERE governance_decision_id = ?
+                        """,
+                        (approval["consumed_by_decision_id"],),
+                    )
+                )
+        return targets or {(None, None)}
+
+    return {(None, None)}
+
+
+def inspect_task_runtime_integrity(
+    connection: sqlite3.Connection,
+) -> tuple[TaskRuntimeIntegrityFinding, ...]:
+    """Return the single accepted I2 integrity result with exact attribution."""
+
+    raw_findings: list[IntegrityFinding] = []
+    IntegrityInspector._inspect_task_runtime_raw(connection, raw_findings)
+    attributed: set[TaskRuntimeIntegrityFinding] = set()
+    for finding in raw_findings:
+        for task_id, session_id in _task_runtime_finding_targets(
+            connection,
+            finding,
+        ):
+            attributed.add(
+                TaskRuntimeIntegrityFinding(
+                    code=finding.code,
+                    severity=finding.severity,
+                    table=finding.table,
+                    object_id=finding.object_id,
+                    task_id=task_id,
+                    session_id=session_id,
+                    detail=finding.detail,
+                )
+            )
+    return tuple(
+        sorted(
+            attributed,
+            key=lambda finding: (
+                finding.code,
+                finding.table,
+                finding.object_id or "",
+                finding.task_id or "",
+                finding.session_id or "",
+                finding.detail,
+            ),
+        )
+    )
