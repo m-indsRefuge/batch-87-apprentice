@@ -108,7 +108,7 @@ def test_dedicated_and_top_level_integrity_are_clean_for_all_c3_types(
     assert dedicated.error_count == 0
     assert top_level.ok
     assert top_level.error_count == 0
-    assert top_level.migration_count == 10
+    assert top_level.migration_count == 11
 
 
 def test_inspector_detects_payload_canonical_and_record_hash_corruption(

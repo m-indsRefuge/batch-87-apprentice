@@ -70,12 +70,14 @@ ACCEPTED_MIGRATION_HASHES = {
 }
 
 
-def test_fresh_database_applies_exactly_through_0010(tmp_path: Path) -> None:
+def test_fresh_database_applies_current_migrations_additively(
+    tmp_path: Path,
+) -> None:
     config = DatabaseConfig(tmp_path / "fresh.sqlite3")
     migrations = MigrationRunner(config).apply_all()
 
-    assert [item.version for item in migrations] == list(range(1, 11))
-    assert migrations[-1].filename == "0010_session_task_memory.sql"
+    assert [item.version for item in migrations] == list(range(1, 12))
+    assert migrations[-1].filename == "0011_retrieval_context.sql"
     assert I3D_TABLES <= names(config.path, "table")
     assert I3D_INDEXES <= names(config.path, "index")
     assert I3D_TRIGGERS <= names(config.path, "trigger")
