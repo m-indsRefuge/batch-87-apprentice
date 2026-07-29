@@ -175,6 +175,7 @@ class IntegrityInspector:
         self._inspect_episode_correction_memory(connection, findings)
         self._inspect_developmental_derivation(connection, findings)
         self._inspect_session_task_memory(connection, findings)
+        self._inspect_retrieval_context(connection, findings)
 
     @staticmethod
     def _inspect_construct_memory(
@@ -278,6 +279,27 @@ class IntegrityInspector:
                 findings,
                 severity=finding.severity,
                 code="session_task_" + finding.code.lower().replace("-", "_"),
+                table=finding.table,
+                object_id=finding.object_id,
+                detail=finding.detail,
+            )
+
+    @staticmethod
+    def _inspect_retrieval_context(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        from batch87_apprentice.context.integrity import (
+            ContextIntegrityInspector,
+        )
+
+        report = ContextIntegrityInspector._inspect_connection(connection)
+        for finding in report.findings:
+            _finding(
+                findings,
+                severity=finding.severity,
+                code="retrieval_context_"
+                + finding.code.lower().replace("-", "_"),
                 table=finding.table,
                 object_id=finding.object_id,
                 detail=finding.detail,
