@@ -46,26 +46,89 @@ The governing acceptance records are:
     docs/implementation/B87-I2-GOVERNED-TASK-RUNTIME-ACCEPTANCE-DECISION.md
     docs/implementation/B87-I2-GOVERNED-TASK-RUNTIME-ACCEPTANCE-EVIDENCE.md
 
-The current active implementation release remains:
+B87-I3 - Three Memory Domains and Evidence Integration is accepted, merged, and
+closed through these bounded sub-slices:
+
+- B87-I3-A - Shared Memory Kernel, accepted implementation series
+  c9c0fdc9b59f7bf1f0fdb537e3ada4f64c196e75,
+  75ff2d36365f84a3b9f7d903eb92d7eb39dcc5de, and
+  65c485008b26025a794fba737eaa46ab14cb969e; merge commit
+  d630aedf69c9ebd4f2e3cf7ba36c9455b8315b49.
+- B87-I3-B - Construct and Relational Memory, accepted implementation commit
+  f51a87cb6f023b594cd46e53e62463b98fe36a63; merge commit
+  359f89326d4f3e21c06667aa5c2ce75ecc90643a.
+- B87-I3-C1 - Factual Self-Model Foundation, accepted implementation commit
+  c46304226b599dd77189087d145735af87b8d5e0; merge commit
+  e581f770188f8df96c19a435ddc84447913f1888.
+- B87-I3-C2 - Episode and Correction Ledger, accepted implementation commit
+  3a3429708b724573e8eb1b11477658b055bbaa87; merge commit
+  bce4d6083b3aa8024e486c03e972218a779d4b89.
+- B87-I3-C3 - Developmental Derivation, accepted implementation commit
+  866fb27eaaebabe7ad5bc8d886edc82ac1ffd946 with test-hardening commit
+  99e1230ee8690c2f3ffd24b6fbb465bc372ae8a5; merge commit
+  75ce3044501a66ef1ba6f8ed9e9c87cea809d0ac.
+- B87-I3-D - Session and Task Memory, accepted implementation commit
+  66ce74745f35b73607b54c90cc991aa2e54c50f6; merge commit
+  d1b561c1f28816ddac0b5cd418fd77e3ea634629.
+
+B87-I4-A - Governed Retrieval and Context Assembly is accepted, merged, and
+closed. The accepted implementation commit is
+29300272aa3745b79d7c0d474cad41ec90c9d723; the merge commit is
+093e07a6aa9209a6ea8efe2aaecfcbdeb6829d0a.
+
+B87-V0 - Persistence Validation is accepted and closed against source baseline
+093e07a6aa9209a6ea8efe2aaecfcbdeb6829d0a. The closure record commit is
+a91c82f7c68143b26b655a05fcbc6571e5358006.
+
+The governing current-state record and its acceptance decision are:
+
+    docs/implementation/B87-PROGRAMME-STATE-RECONCILIATION-THROUGH-I4-A-AND-V0.md
+    docs/implementation/B87-PROGRAMME-STATE-AND-I4-B-CONTRACT-ACCEPTANCE-DECISION.md
+
+The programme-state reconciliation and B87-I4-B contract version 1.0 are
+accepted documentation as of 2026-07-30. Their acceptance does not release
+implementation.
+
+The current active implementation release is:
 
 ```text
 NONE
 ```
 
-B87-I3 - Three Memory Domains and Evidence Integration is the next eligible
-implementation slice.
+B87-I4-B - Provider-Neutral Model and Invocation Bridge is the next bounded
+implementation slice. Its contract is accepted but implementation remains
+unreleased:
 
-B87-I3 may begin only after Nolan separately issues:
+    docs/implementation/B87-I4-B-PROVIDER-NEUTRAL-MODEL-AND-INVOCATION-BRIDGE-CONTRACT.md
 
-    AUTHORIZE B87-I3
+B87-I4-B implementation may begin only after a scoped V0 regression decision
+required by section 17 is separately accepted and recorded, and Nolan
+separately issues:
 
-B87-I4 through B87-I5 require their own accepted contracts and explicit phase
-release before implementation begins.
+    AUTHORIZE B87-I4-B
+
+The documentation acceptance, programme-state reconciliation, and earlier
+contract-authoring authorization do not issue that implementation release.
+
+B87-PRE-I5 and B87-E0 through B87-E2 already have conditionally accepted
+contracts under the ratified pre-LLM contract pack. They remain inactive because
+their entry gates are unsatisfied and no current phase release exists.
+Conditional contract acceptance does not authorize implementation or execution;
+each phase still requires satisfaction of its accepted entry gate and its exact
+explicit phase release.
+
+B87-I5 and external Validation V1 are distinct from those conditionally accepted
+phases. They remain inactive and still require separately accepted execution
+contracts, satisfied entry gates, and explicit Nolan authorization before
+implementation or execution. The accepted V0 closure record defines the
+Validation V1 entry-gate boundary but does not supply its execution contract or
+authorization.
 
 The Shared Experimental Evidence Core, Program Synthesis and Verification V0,
-and Algorithm Discovery Laboratory V0 are future external laboratory
-capabilities. They are not production-runtime dependencies and may not be
-implemented before their own accepted contracts and release gates.
+and Algorithm Discovery Laboratory V0 are the conditionally accepted B87-E0
+through B87-E2 external laboratory capabilities referenced above. They are not
+production-runtime dependencies and remain inactive until their accepted entry
+gates are satisfied and their exact phase releases are issued.
 
 ## Authority and governance boundaries
 

@@ -12,7 +12,28 @@ task can improve a later decision without repeating the correction manually,
 while the process remains observable, permission-bounded, and under human
 authority.
 
-## Active foundations
+## Current programme state
+
+The accepted implementation state extends through B87-I4-A governed retrieval
+and context assembly. B87-V0 external persistence validation is accepted and
+closed against the I4-A merge baseline.
+
+No implementation slice is currently active. The repository does not connect or
+select a real model, configure or start a model server, or authorize an external
+model API. B87-I4-B, the provider-neutral model and invocation bridge, is
+accepted as a documentation contract but remains unreleased. A scoped V0
+regression decision remains an unsatisfied implementation gate and must be
+separately reviewed and accepted, and Nolan's exact future release token remains
+required before implementation.
+
+See:
+
+- [accepted programme-state reconciliation](docs/implementation/B87-PROGRAMME-STATE-RECONCILIATION-THROUGH-I4-A-AND-V0.md);
+- [accepted B87-I4-B slice contract](docs/implementation/B87-I4-B-PROVIDER-NEUTRAL-MODEL-AND-INVOCATION-BRIDGE-CONTRACT.md);
+- [documentation acceptance decision](docs/implementation/B87-PROGRAMME-STATE-AND-I4-B-CONTRACT-ACCEPTANCE-DECISION.md);
+- [accepted B87-V0 closure and V1 entry gate](docs/implementation/B87-V0-PERSISTENCE-VALIDATION-CLOSURE-AND-V1-ENTRY-GATE.md).
+
+## Accepted foundations
 
 - immutable external governance;
 - provisional Apprentice identity;
@@ -21,11 +42,13 @@ authority.
 - session and task memory;
 - provenance and approval states;
 - deterministic permission enforcement;
-- structured evaluation;
-- controlled compounding-learning experiments.
+- governed retrieval and context assembly.
 
 ## Reserved future systems
 
+- provider-neutral model and invocation bridge;
+- structured model evaluation;
+- controlled compounding-learning experiments;
 - self-authored identity development;
 - agent developmental journals;
 - curated training corpora;
