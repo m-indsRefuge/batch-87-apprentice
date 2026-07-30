@@ -1,6 +1,20 @@
 {
   "schemas": [
     {
+      "content_hash": "52a262ffee70fcdeeacf8a20639f8d52fcc7b666e1ec4ec86e400e682bba4a91",
+      "id": "https://batch87.local/schemas/protocols/apprentice-response/1.0.0",
+      "path": "protocols/apprentice-response/1.0.0.schema.json",
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
+      "content_hash": "d3eecaaa715c7f9c83550bc0a4b3c1c76fa43bafbd760582c11a96c57e0a7656",
+      "id": "https://batch87.local/schemas/protocols/model-input/1.0.0",
+      "path": "protocols/model-input/1.0.0.schema.json",
+      "status": "active",
+      "version": "1.0.0"
+    },
+    {
       "content_hash": "18095a99e6e3e70da3d4305edf4c0623ea2e49af19895dd4d621097ecd573a7f",
       "id": "https://batch87.local/schemas/protocols/task-contract/1.0.0",
       "path": "protocols/task-contract/1.0.0.schema.json",

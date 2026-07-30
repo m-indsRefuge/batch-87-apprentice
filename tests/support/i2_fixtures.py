@@ -323,6 +323,20 @@ def task(
     session_id: str | None = None,
     objective: str = "Inspect deterministic fixture.",
     provenance: dict[str, str] | None = None,
+    task_type: str = "governed_analysis",
+    governing_constraints: tuple[str, ...] = (
+        "b87_s1_permissions",
+        "structured_authority_only",
+    ),
+    prohibited_actions: tuple[str, ...] | None = None,
+    expected_output_schema_id: str = (
+        "https://batch87.local/schemas/output/test-analysis"
+    ),
+    stop_conditions: tuple[str, ...] = (
+        "invalid_authority",
+        "permission_violation",
+        "context_policy_violation",
+    ),
 ) -> TaskContract:
     if authority_grant is None:
         authority_grant = (
@@ -345,7 +359,7 @@ def task(
             else requested_scope_id
         ),
         objective=objective,
-        task_type="governed_analysis",
+        task_type=task_type,
         requested_operation=RequestedOperation(
             name=(
                 operation_name
@@ -359,25 +373,20 @@ def task(
         claimed_authority_ids=authority_ids,
         claimed_human_approval_ids=human_approval_ids,
         effective_at=NOW,
-        governing_constraints=(
-            "b87_s1_permissions",
-            "structured_authority_only",
-        ),
+        governing_constraints=governing_constraints,
         required_evidence_ids=required_evidence_ids,
         allowed_sources=("approved_evidence",),
         prohibited_actions=(
-            ("execute", "autonomous_action")
-            if principal == "apprentice"
-            else ("autonomous_action",)
+            prohibited_actions
+            if prohibited_actions is not None
+            else (
+                ("execute", "autonomous_action")
+                if principal == "apprentice"
+                else ("autonomous_action",)
+            )
         ),
-        expected_output_schema_id=(
-            "https://batch87.local/schemas/output/test-analysis"
-        ),
-        stop_conditions=(
-            "invalid_authority",
-            "permission_violation",
-            "context_policy_violation",
-        ),
+        expected_output_schema_id=expected_output_schema_id,
+        stop_conditions=stop_conditions,
         provenance_json=canonical_json_text(
             provenance or {"source": "deterministic I2 test fixture"}
         ),

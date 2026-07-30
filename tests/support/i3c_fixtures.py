@@ -302,6 +302,9 @@ def runtime_identity_components(
     runtime_instance_id: str | None = None,
     supersedes_record_id: str | None = None,
     context_limit: int = 8192,
+    base_model: str = "fixture/model",
+    model_revision: str | None = None,
+    runtime_provider: str = "deterministic-local",
 ) -> tuple[
     RecordEnvelope,
     RuntimeIdentityPayload,
@@ -313,9 +316,13 @@ def runtime_identity_components(
     payload = RuntimeIdentityPayload(
         record_id=uid(base),
         agent_entity_id=harness.agent_id,
-        base_model="fixture/model",
-        model_revision=f"fixture-revision-{base}",
-        runtime_provider="deterministic-local",
+        base_model=base_model,
+        model_revision=(
+            f"fixture-revision-{base}"
+            if model_revision is None
+            else model_revision
+        ),
+        runtime_provider=runtime_provider,
         quantisation="q4_k_m",
         context_limit=context_limit,
         active_adapter=None,

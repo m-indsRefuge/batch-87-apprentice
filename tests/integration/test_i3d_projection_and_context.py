@@ -103,7 +103,6 @@ def test_i3d_adds_no_duplicate_i2_authority_tables(
         "session_task_tasks",
         "task_memory_status",
         "context_manifests",
-        "model_invocations",
     } & names
 
 

@@ -220,6 +220,77 @@ def _available_evidence_ids(
     )
 
 
+def transition_task_in_transaction(
+    connection: sqlite3.Connection,
+    *,
+    task_id: str,
+    to_status: str,
+    transition_id: str,
+    changed_at: str,
+    reason_code: str,
+) -> str:
+    """Apply the accepted I2 terminal transition inside an existing transaction."""
+
+    validate_identifier(task_id, field="task_id")
+    validate_identifier(transition_id, field="task_transition_id")
+    if to_status not in {"completed", "failed"}:
+        raise ValidationError(
+            "active tasks may transition only to completed or failed here"
+        )
+    if not isinstance(reason_code, str) or not reason_code.strip():
+        raise ValidationError("task transition reason_code must be non-empty")
+    row = connection.execute(
+        "SELECT status FROM tasks WHERE task_id = ?",
+        (task_id,),
+    ).fetchone()
+    if row is None:
+        raise NotFoundError(f"task not found: {task_id}")
+    if row["status"] != "active":
+        raise ConflictError("only active tasks can be completed or failed")
+    transaction = connection.execute(
+        """
+        SELECT transaction_id
+        FROM governed_runtime_transactions
+        WHERE task_id = ?
+        """,
+        (task_id,),
+    ).fetchone()
+    if transaction is None:
+        raise IntegrityInspectionError(
+            "task transition requires its governed transaction"
+        )
+    sequence = connection.execute(
+        """
+        SELECT COALESCE(MAX(sequence_number), -1) + 1
+        FROM task_state_transitions
+        WHERE task_id = ?
+        """,
+        (task_id,),
+    ).fetchone()[0]
+    connection.execute(
+        """
+        INSERT INTO task_state_transitions (
+            transition_id, task_id, sequence_number, from_status,
+            to_status, reason_code, changed_at, changed_by, transaction_id
+        ) VALUES (?, ?, ?, 'active', ?, ?, ?, 'governance_kernel', ?)
+        """,
+        (
+            transition_id,
+            task_id,
+            sequence,
+            to_status,
+            reason_code,
+            changed_at,
+            transaction["transaction_id"],
+        ),
+    )
+    connection.execute(
+        "UPDATE tasks SET status = ?, completed_at = ? WHERE task_id = ?",
+        (to_status, changed_at, task_id),
+    )
+    return transition_id
+
+
 class TaskRuntimeStore:
     """Keep all I2 writes behind the accepted I1 BEGIN IMMEDIATE boundary."""
 
@@ -900,55 +971,16 @@ class TaskRuntimeStore:
     ) -> str:
         """Append and apply one governed terminal transition for an active task."""
 
-        validate_identifier(task_id, field="task_id")
-        validate_identifier(transition_id, field="task_transition_id")
-        if to_status not in {"completed", "failed"}:
-            raise ValidationError(
-                "active tasks may transition only to completed or failed here"
+        return self._kernel.write(
+            lambda connection: transition_task_in_transaction(
+                connection,
+                task_id=task_id,
+                to_status=to_status,
+                transition_id=transition_id,
+                changed_at=changed_at,
+                reason_code=reason_code,
             )
-        if not isinstance(reason_code, str) or not reason_code.strip():
-            raise ValidationError("task transition reason_code must be non-empty")
-
-        def operation(connection: sqlite3.Connection) -> str:
-            row = connection.execute(
-                "SELECT status FROM tasks WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
-            if row is None:
-                raise NotFoundError(f"task not found: {task_id}")
-            if row["status"] != "active":
-                raise ConflictError("only active tasks can be completed or failed")
-            transaction = connection.execute(
-                "SELECT transaction_id FROM governed_runtime_transactions WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
-            if transaction is None:
-                raise IntegrityInspectionError(
-                    "task transition requires its governed transaction"
-                )
-            sequence = connection.execute(
-                "SELECT COALESCE(MAX(sequence_number), -1) + 1 FROM task_state_transitions WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()[0]
-            connection.execute(
-                """
-                INSERT INTO task_state_transitions (
-                    transition_id, task_id, sequence_number, from_status,
-                    to_status, reason_code, changed_at, changed_by, transaction_id
-                ) VALUES (?, ?, ?, 'active', ?, ?, ?, 'governance_kernel', ?)
-                """,
-                (
-                    transition_id, task_id, sequence, to_status, reason_code,
-                    changed_at, transaction["transaction_id"],
-                ),
-            )
-            connection.execute(
-                "UPDATE tasks SET status = ?, completed_at = ? WHERE task_id = ?",
-                (to_status, changed_at, task_id),
-            )
-            return transition_id
-
-        return self._kernel.write(operation)
+        )
 
     def evaluate_task(
         self,

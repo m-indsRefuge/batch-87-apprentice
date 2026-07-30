@@ -68,6 +68,15 @@ def build_task_with_inline_evidence(
     base: int,
     evidence_kind: str,
     content: str,
+    governing_constraints: tuple[str, ...] = (
+        "b87_s1_permissions",
+        "structured_authority_only",
+    ),
+    expected_output_schema_id: str = (
+        "https://batch87.local/schemas/output/test-analysis"
+    ),
+    prohibited_actions: tuple[str, ...] | None = None,
+    task_type: str = "governed_analysis",
 ) -> I3DHarness:
     item = EvidenceItem.inline_text(
         evidence_id=uid(base + 1),
@@ -96,9 +105,13 @@ def build_task_with_inline_evidence(
         required_evidence_ids=(item.evidence_id,),
         action_class="analyse",
         objective="Assemble exact governed context over typed evidence.",
+        governing_constraints=governing_constraints,
+        expected_output_schema_id=expected_output_schema_id,
+        prohibited_actions=prohibited_actions,
+        task_type=task_type,
     )
     result = harness.runtime.evaluate(contract)
-    assert result.task_status == "active"
+    assert result.task_status == "active", result
     return I3DHarness(
         c3=harness.c3,
         task_id=contract.task_id,
