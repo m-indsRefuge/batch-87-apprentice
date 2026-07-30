@@ -1063,6 +1063,23 @@ that defines:
 9. evidence and negative controls;
 10. acceptance and stop conditions.
 
+A scoped regression decision version 1.0 and its acceptance decision are
+accepted:
+
+```text
+docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-DECISION.md
+docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-ACCEPTANCE-DECISION.md
+```
+
+That acceptance satisfies only the scoped regression-planning requirement in
+this section. It does not authorize implementation, transfer V0 acceptance, or
+change active implementation release `NONE`. B87-I4-B implementation remains
+unauthorized. Any future `AUTHORIZE B87-I4-B` release must identify accepted
+regression-decision version 1.0 and its acceptance record. B87-V0 remains
+accepted and closed. External regression remains prohibited until the exact
+candidate commit and a valid `B87-I4B-HARNESS-FREEZE-MANIFEST-v1.0` are frozen
+and all other accepted external-execution preconditions are satisfied.
+
 An internal pytest pass cannot be substituted for required external V0
 regression evidence.
 

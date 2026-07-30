@@ -101,14 +101,28 @@ unreleased:
 
     docs/implementation/B87-I4-B-PROVIDER-NEUTRAL-MODEL-AND-INVOCATION-BRIDGE-CONTRACT.md
 
-B87-I4-B implementation may begin only after a scoped V0 regression decision
-required by section 17 is separately accepted and recorded, and Nolan
+A scoped V0 regression decision version 1.0 and its acceptance decision are
+accepted documentation:
+
+    docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-DECISION.md
+    docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-ACCEPTANCE-DECISION.md
+
+That acceptance satisfies the regression-planning entry gate required by
+section 17 of the I4-B contract. B87-V0 remains accepted and closed.
+
+B87-I4-B implementation remains unauthorized and may begin only after Nolan
 separately issues:
 
     AUTHORIZE B87-I4-B
 
-The documentation acceptance, programme-state reconciliation, and earlier
-contract-authoring authorization do not issue that implementation release.
+That future release must identify accepted regression-decision version 1.0 and
+its acceptance record. External regression remains prohibited until the
+separately authorized implementation is complete and internally passing, the
+exact candidate commit is frozen, the executable scenario adaptations are
+complete, a valid `B87-I4B-HARNESS-FREEZE-MANIFEST-v1.0` is generated and
+recorded, and every other accepted external-execution precondition is satisfied.
+The documentation acceptances, programme-state reconciliation, and earlier
+contract-authoring authorization do not issue the implementation release.
 
 B87-PRE-I5 and B87-E0 through B87-E2 already have conditionally accepted
 contracts under the ratified pre-LLM contract pack. They remain inactive because

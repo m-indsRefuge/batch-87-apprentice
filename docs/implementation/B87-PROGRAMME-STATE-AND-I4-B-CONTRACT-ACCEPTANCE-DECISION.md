@@ -57,6 +57,26 @@ Contract acceptance does not transfer B87-V0 acceptance from source baseline
 future I4-B persistence baseline must receive the separately accepted scoped V0
 regression decision and evidence required by the contract.
 
+## Current scoped-regression planning status
+
+Scoped V0 regression decision version 1.0 and its acceptance decision were
+subsequently accepted:
+
+```text
+docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-DECISION.md
+docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-ACCEPTANCE-DECISION.md
+```
+
+That later acceptance satisfies the previously unsatisfied regression-planning
+entry gate without rewriting this record's original decision-time state. It
+does not authorize I4-B implementation, issue `AUTHORIZE B87-I4-B`, transfer V0
+acceptance, or change active implementation release `NONE`. Any future runtime
+release must identify accepted regression-decision version 1.0 and its
+acceptance record. B87-V0 remains accepted and closed. External regression
+remains prohibited until the exact candidate commit and a valid
+`B87-I4B-HARNESS-FREEZE-MANIFEST-v1.0` are frozen and every other accepted
+external-execution precondition is satisfied.
+
 ## Explicit non-authorization
 
 This decision does not authorize:

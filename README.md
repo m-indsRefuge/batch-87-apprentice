@@ -21,15 +21,22 @@ closed against the I4-A merge baseline.
 No implementation slice is currently active. The repository does not connect or
 select a real model, configure or start a model server, or authorize an external
 model API. B87-I4-B, the provider-neutral model and invocation bridge, is
-accepted as a documentation contract but remains unreleased. A scoped V0
-regression decision remains an unsatisfied implementation gate and must be
-separately reviewed and accepted, and Nolan's exact future release token remains
-required before implementation.
+accepted as a documentation contract but remains unreleased. Scoped V0
+regression decision version 1.0 is accepted, and its acceptance satisfies only
+the regression-planning entry gate. Active implementation release remains
+`NONE`, B87-I4-B implementation remains unauthorized, and Nolan's exact future
+release token `AUTHORIZE B87-I4-B` remains required. That future release must
+identify accepted regression-decision version 1.0 and its acceptance record.
+B87-V0 remains closed. External regression remains prohibited until the exact
+candidate commit and a valid `B87-I4B-HARNESS-FREEZE-MANIFEST-v1.0` are frozen
+and all other accepted execution preconditions are satisfied.
 
 See:
 
 - [accepted programme-state reconciliation](docs/implementation/B87-PROGRAMME-STATE-RECONCILIATION-THROUGH-I4-A-AND-V0.md);
 - [accepted B87-I4-B slice contract](docs/implementation/B87-I4-B-PROVIDER-NEUTRAL-MODEL-AND-INVOCATION-BRIDGE-CONTRACT.md);
+- [accepted B87-I4-B scoped V0 regression decision](docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-DECISION.md);
+- [scoped V0 regression acceptance decision](docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-ACCEPTANCE-DECISION.md);
 - [documentation acceptance decision](docs/implementation/B87-PROGRAMME-STATE-AND-I4-B-CONTRACT-ACCEPTANCE-DECISION.md);
 - [accepted B87-V0 closure and V1 entry gate](docs/implementation/B87-V0-PERSISTENCE-VALIDATION-CLOSURE-AND-V1-ENTRY-GATE.md).
 
