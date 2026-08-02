@@ -1,17 +1,19 @@
 # B87-I5 Candidate-Model Admission and First Compounding Loop Contract
 
-**Project:** Batch-87 Apprentice
-**Phase:** B87-I5 — Candidate-Model Admission and First Compounding Loop
-**Contract version:** 1.0
-**Status:** Accepted
-**Acceptance date:** 2026-08-02
-**Acceptance statement:** `ACCEPT B87-I5 CANDIDATE-MODEL ADMISSION AND FIRST-COMPOUNDING CONTRACT`
-**Implementation status:** Not authorized
-**Repository baseline:** `bbf0f0fe915b6c62d8f03a0dfa065d64d8b8f319`
-**Accepted predecessor:** B87-PRE-I5 — Deterministic Evaluation Infrastructure
-**Target system:** B87-S1 — Governed Memory Apprentice
-**Authority:** Nolan and Byte
-**Apprentice permissions:** Observe and Analyse only
+| Field | Value |
+| --- | --- |
+| Project | Batch-87 Apprentice |
+| Phase | B87-I5 — Candidate-Model Admission and First Compounding Loop |
+| Contract version | 1.0 |
+| Status | Accepted |
+| Acceptance date | 2026-08-02 |
+| Acceptance statement | `ACCEPT B87-I5 CANDIDATE-MODEL ADMISSION AND FIRST-COMPOUNDING CONTRACT` |
+| Implementation status | Not authorized |
+| Repository baseline | `bbf0f0fe915b6c62d8f03a0dfa065d64d8b8f319` |
+| Accepted predecessor | B87-PRE-I5 — Deterministic Evaluation Infrastructure |
+| Target system | B87-S1 — Governed Memory Apprentice |
+| Authority | Nolan and Byte |
+| Apprentice permissions | Observe and Analyse only |
 
 ---
 

@@ -2,11 +2,13 @@
 
 ## 1. Record status
 
-**Record type:** Current operational programme-state reconciliation
-**Record date:** 2026-08-02
-**Authoring authority:** `AUTHORIZE B87-I5 CONTRACT INTEGRATION`
-**Repository baseline:** `bbf0f0fe915b6c62d8f03a0dfa065d64d8b8f319`
-**Baseline tree:** `a10775262d860a43a5c9132cc2a8eeb7fc5426c0`
+| Field | Value |
+| --- | --- |
+| Record type | Current operational programme-state reconciliation |
+| Record date | 2026-08-02 |
+| Authoring authority | `AUTHORIZE B87-I5 CONTRACT INTEGRATION` |
+| Repository baseline | `bbf0f0fe915b6c62d8f03a0dfa065d64d8b8f319` |
+| Baseline tree | `a10775262d860a43a5c9132cc2a8eeb7fc5426c0` |
 
 This record reconciles the repository's operational summary after B87-PRE-I5
 acceptance and merge and after acceptance of the B87-I5 contract.
