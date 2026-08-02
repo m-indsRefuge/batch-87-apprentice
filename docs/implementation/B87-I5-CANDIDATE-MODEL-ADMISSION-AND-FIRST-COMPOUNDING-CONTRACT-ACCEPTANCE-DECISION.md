@@ -2,13 +2,15 @@
 
 ## 1. Decision identity
 
-**Project:** Batch-87 Apprentice
-**Decision type:** Contract acceptance
-**Decision date:** 2026-08-02
-**Decision authority:** Nolan
-**Byte semantic review:** Accepted for Nolan contract decision
-**Repository baseline:** `bbf0f0fe915b6c62d8f03a0dfa065d64d8b8f319`
-**Repository tree:** `a10775262d860a43a5c9132cc2a8eeb7fc5426c0`
+| Field | Value |
+| --- | --- |
+| Project | Batch-87 Apprentice |
+| Decision type | Contract acceptance |
+| Decision date | 2026-08-02 |
+| Decision authority | Nolan |
+| Byte semantic review | Accepted for Nolan contract decision |
+| Repository baseline | `bbf0f0fe915b6c62d8f03a0dfa065d64d8b8f319` |
+| Repository tree | `a10775262d860a43a5c9132cc2a8eeb7fc5426c0` |
 
 ## 2. Accepted contract
 
