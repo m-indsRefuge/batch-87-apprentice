@@ -88,7 +88,7 @@ acceptance decision are:
 
 The current operational-state reconciliation is:
 
-    docs/implementation/B87-PROGRAMME-STATE-RECONCILIATION-THROUGH-I4-B-AND-PRE-I5-RELEASE.md
+    docs/implementation/B87-PROGRAMME-STATE-RECONCILIATION-THROUGH-PRE-I5-CLOSURE-AND-I5-CONTRACT-ACCEPTANCE.md
 
 B87-I4-B - Provider-Neutral Model and Invocation Bridge is accepted, externally
 validated, merged, and closed. The accepted implementation commit is
@@ -102,32 +102,54 @@ closes I4-B within its accepted deterministic inactive/mock-provider boundary;
 it does not validate a real provider, candidate model, model behaviour, memory
 efficacy, developmental compounding, or general production readiness.
 
-The current active implementation release is:
+B87-PRE-I5 - Deterministic Evaluation Infrastructure is accepted, published,
+reviewed, merged, and closed. Its immutable identities are:
+
+- state reconciliation commit:
+  505532beec6fd176399503337a8da670edea8522;
+- implementation commit: 87bd6dd3d6f5cffb6c1e86d9965c321ec32b21c0;
+- semantic repair commit: 98d67d676fbcbd47bee9b72a32d0f86ff6572999;
+- final blinding repair commit:
+  344b3abae4a7953216289460877ac1cf1a9c97c6;
+- accepted tree: a10775262d860a43a5c9132cc2a8eeb7fc5426c0;
+- merge commit: bbf0f0fe915b6c62d8f03a0dfa065d64d8b8f319;
+- pull request: #16.
+
+The B87-I5 contract is accepted:
+
+    docs/implementation/B87-I5-CANDIDATE-MODEL-ADMISSION-AND-FIRST-COMPOUNDING-LOOP-CONTRACT.md
+
+The acceptance decision is:
+
+    docs/implementation/B87-I5-CANDIDATE-MODEL-ADMISSION-AND-FIRST-COMPOUNDING-CONTRACT-ACCEPTANCE-DECISION.md
+
+Nolan's exact contract acceptance was:
 
 ```text
-B87-PRE-I5
+ACCEPT B87-I5 CANDIDATE-MODEL ADMISSION AND FIRST-COMPOUNDING CONTRACT
 ```
 
-B87-PRE-I5 - Deterministic Evaluation Infrastructure is the only active bounded
-implementation slice. Its conditionally accepted contract is supplied by:
+B87-I5 is split into independently released B87-I5-A, B87-I5-B, B87-I5-C, and
+B87-I5-D subphases. Passing or accepting one subphase does not authorize the
+next.
 
-    docs/implementation/B87-PRE-LLM-IMPLEMENTATION-PROGRAMME-CONTRACT.md
-    docs/implementation/B87-PRE-LLM-CONTRACT-RATIFICATION-DECISION.md
-
-Nolan issued the exact release:
+The current active implementation release is exactly:
 
 ```text
-AUTHORIZE B87-PRE-I5
+NONE
 ```
 
-PRE-I5 may implement only deterministic, non-model infrastructure for candidate
-metadata, evaluation configurations, fixture discovery and versioning, run
-planning, result contracts, append-only persistence and reconstruction,
-deterministic reporting, and a synthetic mock evaluation campaign. It may not
-execute, accept, activate, select, rank for admission, download, load, or serve
-a candidate model. Real providers, provider endpoints, credentials, model
-paths, B87-I5, Validation V1, training, tools, Execute permission, and B87-E0
-through B87-E2 remain unauthorized.
+The B87-I5 candidate suite is not accepted. B87-I5-A is not authorized.
+
+Local-provider implementation, Ollama connection, model download or acquisition,
+candidate preflight, execution, scoring, ranking, admission, activation,
+supervised B87-S1 real work, and external Validation V1 remain unauthorized.
+Apprentice permissions remain Observe and Analyse only. Training, tools, Execute
+permission, and `SOUL.md` remain inactive and unauthorized.
+
+The next governed design task is the separate candidate-suite decision.
+`AUTHORIZE B87-I5-A` may not be treated as eligible until that decision is
+separately accepted and every I5-A entry condition is satisfied.
 
 B87-E0 through B87-E2 retain conditionally accepted contracts under the
 ratified pre-LLM contract pack but remain inactive. Conditional contract
@@ -135,12 +157,11 @@ acceptance does not authorize implementation or execution; each phase still
 requires satisfaction of its accepted entry gate and its exact explicit phase
 release.
 
-B87-I5 and external Validation V1 are distinct from those conditionally accepted
-phases. They remain inactive and still require separately accepted execution
-contracts, satisfied entry gates, and explicit Nolan authorization before
-implementation or execution. The accepted V0 closure record defines the
-Validation V1 entry-gate boundary but does not supply its execution contract or
-authorization.
+B87-I5 implementation and external Validation V1 remain distinct. The accepted
+B87-I5 contract supplies governing design and entry conditions only; it does not
+authorize implementation or execution. The accepted V0 closure record defines
+the Validation V1 entry-gate boundary but does not supply its execution contract
+or authorization.
 
 The Shared Experimental Evidence Core, Program Synthesis and Verification V0,
 and Algorithm Discovery Laboratory V0 are the conditionally accepted B87-E0
