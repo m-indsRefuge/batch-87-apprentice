@@ -130,8 +130,8 @@ def test_i4b_migration_is_single_ordered_additive_step(tmp_path: Path) -> None:
     finally:
         connection.close()
 
-    assert [migration.version for migration in migrations] == list(range(1, 13))
-    assert migrations[-1].filename == "0012_model_invocation_bridge.sql"
+    assert [migration.version for migration in migrations[:12]] == list(range(1, 13))
+    assert migrations[11].filename == "0012_model_invocation_bridge.sql"
     assert repeated_ledger == first_ledger
     assert foreign_keys == []
     assert integrity == [("ok",)]
@@ -376,7 +376,7 @@ def test_pre_i4b_migration_bytes_remain_exactly_unchanged() -> None:
 def test_i4b_migration_contains_no_runtime_or_experimental_activation() -> None:
     migration = MigrationRunner(
         DatabaseConfig(Path("unused-i4b-content-check.sqlite3"))
-    ).discover()[-1]
+    ).discover()[11]
     lowered = migration.sql.lower()
 
     assert "create table model_invocations" in lowered

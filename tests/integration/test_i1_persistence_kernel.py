@@ -179,6 +179,7 @@ def test_default_migrations_apply_repeatedly_with_required_schema(
         "0010_session_task_memory.sql",
         "0011_retrieval_context.sql",
         "0012_model_invocation_bridge.sql",
+        "0013_deterministic_evaluation.sql",
     ]
     assert first == second
     tables = SqlProbe(config).read(
@@ -1205,7 +1206,7 @@ def test_later_claim_semantics_are_additive_without_rewriting_i1(
         "registered"
     )
 
-    (migration_directory / "0013_later_claim_probe.sql").write_text(
+    (migration_directory / "0014_later_claim_probe.sql").write_text(
         """
         CREATE TABLE later_claim_probe (
             reference_id TEXT NOT NULL,
