@@ -64,7 +64,7 @@ def test_supported_task_contract_is_canonical_and_stable() -> None:
     assert json.loads(first.canonical_json) == first.canonical_value()
 
 
-def test_task_schema_registry_has_one_exact_active_version() -> None:
+def test_task_schema_registry_retains_one_exact_active_version() -> None:
     root = Path(__file__).resolve().parents[2]
     schema_path = root / "schemas/protocols/task-contract/1.0.0.schema.json"
     schema_bytes = schema_path.read_bytes()
@@ -79,17 +79,23 @@ def test_task_schema_registry_has_one_exact_active_version() -> None:
     )
     assert set(schema["required"]) == set(valid_mapping())
     assert schema["additionalProperties"] is False
-    assert registry == {
-        "schemas": [
-            {
-                "content_hash": hashlib.sha256(schema_bytes).hexdigest(),
-                "id": TASK_CONTRACT_SCHEMA_ID,
-                "path": "protocols/task-contract/1.0.0.schema.json",
-                "status": "active",
-                "version": TASK_CONTRACT_VERSION,
-            }
-        ]
-    }
+    task_entries = [
+        entry
+        for entry in registry["schemas"]
+        if entry["id"] == TASK_CONTRACT_SCHEMA_ID
+    ]
+    assert task_entries == [
+        {
+            "content_hash": hashlib.sha256(schema_bytes).hexdigest(),
+            "id": TASK_CONTRACT_SCHEMA_ID,
+            "path": "protocols/task-contract/1.0.0.schema.json",
+            "status": "active",
+            "version": TASK_CONTRACT_VERSION,
+        }
+    ]
+    assert len({entry["id"] for entry in registry["schemas"]}) == len(
+        registry["schemas"]
+    )
 
 
 def test_unsupported_task_contract_version_is_rejected() -> None:

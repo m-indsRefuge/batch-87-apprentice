@@ -1,0 +1,94 @@
+{
+  "$id": "https://batch87.local/schemas/protocols/apprentice-response/1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "evidence_used": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "inferences": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "memory_used": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "observations": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "protocol": {
+      "const": "batch87.apprentice-response"
+    },
+    "protocol_version": {
+      "const": "1.0.0"
+    },
+    "recommendations": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "partial",
+        "unable"
+      ],
+      "type": "string"
+    },
+    "stop_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "stop_requested": {
+      "type": "boolean"
+    },
+    "task_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "uncertainties": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "evidence_used",
+    "inferences",
+    "memory_used",
+    "observations",
+    "protocol",
+    "protocol_version",
+    "recommendations",
+    "status",
+    "stop_reason",
+    "stop_requested",
+    "task_id",
+    "uncertainties"
+  ],
+  "title": "Batch-87 Apprentice Response",
+  "type": "object"
+}

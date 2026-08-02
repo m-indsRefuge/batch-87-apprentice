@@ -59,7 +59,9 @@ class PersistenceService:
         from batch87_apprentice.context.retrieval import (
             ContextRetrievalService,
         )
-
+        from batch87_apprentice.invocation.integrity import (
+            InvocationIntegrityInspector,
+        )
         self.config = config
         kernel = PersistenceKernel(config)
         self.runtime_instances = RuntimeRepository(kernel)
@@ -83,6 +85,7 @@ class PersistenceService:
         self.session_task_memory = SessionTaskMemoryRepository(config)
         self.session_task_integrity = SessionTaskIntegrityInspector(kernel)
         self.retrieval_context = ContextRetrievalService(config)
+        self.model_invocation_integrity = InvocationIntegrityInspector(kernel)
         self.integrity = IntegrityInspector(kernel)
 
     @classmethod

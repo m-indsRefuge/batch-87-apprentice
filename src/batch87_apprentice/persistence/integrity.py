@@ -176,6 +176,7 @@ class IntegrityInspector:
         self._inspect_developmental_derivation(connection, findings)
         self._inspect_session_task_memory(connection, findings)
         self._inspect_retrieval_context(connection, findings)
+        self._inspect_model_invocations(connection, findings)
 
     @staticmethod
     def _inspect_construct_memory(
@@ -302,6 +303,26 @@ class IntegrityInspector:
                 + finding.code.lower().replace("-", "_"),
                 table=finding.table,
                 object_id=finding.object_id,
+                detail=finding.detail,
+            )
+
+    @staticmethod
+    def _inspect_model_invocations(
+        connection: sqlite3.Connection,
+        findings: list[IntegrityFinding],
+    ) -> None:
+        from batch87_apprentice.invocation.integrity import (
+            InvocationIntegrityInspector,
+        )
+
+        report = InvocationIntegrityInspector._inspect_connection(connection)
+        for finding in report.findings:
+            _finding(
+                findings,
+                severity=finding.severity,
+                code="model_invocation_" + finding.code,
+                table="model_invocations",
+                object_id=finding.model_invocation_id,
                 detail=finding.detail,
             )
 
@@ -472,14 +493,36 @@ class IntegrityInspector:
                     detail="typed identity exists but no later operational owner has claimed it",
                 )
             elif row["lifecycle_state"] == "claimed":
-                _finding(
-                    findings,
-                    severity="error",
-                    code="anchor_ownerless_claimed",
-                    table="governed_reference_anchors",
-                    object_id=reference_id,
-                    detail="I1 has no operational owner table that can justify claimed state",
+                owner_exists = (
+                    row["reference_kind"] == "model_invocation"
+                    and connection.execute(
+                        """
+                        SELECT 1
+                        FROM model_invocations
+                        WHERE model_invocation_id = ?
+                          AND reference_kind = ?
+                          AND project_scope_id = ?
+                        """,
+                        (
+                            reference_id,
+                            row["reference_kind"],
+                            row["project_scope_id"],
+                        ),
+                    ).fetchone()
+                    is not None
                 )
+                if not owner_exists:
+                    _finding(
+                        findings,
+                        severity="error",
+                        code="anchor_ownerless_claimed",
+                        table="governed_reference_anchors",
+                        object_id=reference_id,
+                        detail=(
+                            "no accepted operational owner table justifies "
+                            "claimed state"
+                        ),
+                    )
             elif row["lifecycle_state"] == "invalid":
                 _finding(
                     findings,

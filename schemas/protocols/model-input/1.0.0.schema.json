@@ -1,0 +1,136 @@
+{
+  "$id": "https://batch87.local/schemas/protocols/model-input/1.0.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authority": {
+      "type": "object"
+    },
+    "evidence": {
+      "type": "array"
+    },
+    "identity": {
+      "type": "object"
+    },
+    "invocation": {
+      "additionalProperties": false,
+      "properties": {
+        "context_package_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "context_package_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "inference_configuration_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "model_invocation_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "output_schema_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "output_schema_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "project_scope_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "provider_descriptor_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "retrieval_manifest_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "retrieval_manifest_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "runtime_identity_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "runtime_identity_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "session_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "task_context_finalization_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "task_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "task_memory_projection_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "context_package_hash",
+        "context_package_id",
+        "inference_configuration_hash",
+        "model_invocation_id",
+        "output_schema_hash",
+        "output_schema_id",
+        "project_scope_id",
+        "provider_descriptor_hash",
+        "retrieval_manifest_hash",
+        "retrieval_manifest_id",
+        "runtime_identity_hash",
+        "runtime_identity_id",
+        "session_id",
+        "task_context_finalization_id",
+        "task_id",
+        "task_memory_projection_hash"
+      ],
+      "type": "object"
+    },
+    "memory": {
+      "type": "array"
+    },
+    "output_contract": {
+      "type": "object"
+    },
+    "policy": {
+      "type": "array"
+    },
+    "protocol": {
+      "const": "batch87.model-input"
+    },
+    "protocol_version": {
+      "const": "1.0.0"
+    },
+    "task": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "authority",
+    "evidence",
+    "identity",
+    "invocation",
+    "memory",
+    "output_contract",
+    "policy",
+    "protocol",
+    "protocol_version",
+    "task"
+  ],
+  "title": "Batch-87 Model Input Packet",
+  "type": "object"
+}
