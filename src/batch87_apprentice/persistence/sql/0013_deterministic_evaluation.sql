@@ -58,6 +58,7 @@ CREATE TABLE evaluation_fixture_sets (
 
 CREATE TABLE evaluation_fixtures (
     fixture_id TEXT PRIMARY KEY,
+    fixture_family_id TEXT NOT NULL,
     fixture_version TEXT NOT NULL,
     fixture_set_id TEXT NOT NULL,
     fixture_set_version TEXT NOT NULL,
@@ -80,6 +81,7 @@ CREATE TABLE evaluation_fixtures (
     UNIQUE (fixture_set_id, fixture_set_version, fixture_ordinal),
     UNIQUE (fixture_set_id, fixture_set_version, source_name),
     UNIQUE (fixture_set_id, fixture_set_version, content_hash),
+    UNIQUE (fixture_family_id, fixture_version),
     FOREIGN KEY (
         fixture_set_id, fixture_set_version, evaluation_suite_id,
         evaluation_suite_version, fixture_set_hash
@@ -88,6 +90,7 @@ CREATE TABLE evaluation_fixtures (
         evaluation_suite_version, content_hash
     ),
     CHECK (length(fixture_id) = 36),
+    CHECK (length(fixture_family_id) = 36),
     CHECK (length(evaluation_suite_id) = 36),
     CHECK (source_name GLOB '*.json'),
     CHECK (instr(source_name, '\\') = 0),
@@ -96,6 +99,7 @@ CREATE TABLE evaluation_fixtures (
 
 CREATE TABLE evaluation_configurations (
     configuration_id TEXT PRIMARY KEY,
+    configuration_family_id TEXT NOT NULL,
     configuration_version TEXT NOT NULL,
     evaluation_suite_id TEXT NOT NULL,
     evaluation_suite_version TEXT NOT NULL,
@@ -124,12 +128,15 @@ CREATE TABLE evaluation_configurations (
         evaluation_suite_version, content_hash
     ),
     UNIQUE (configuration_id, content_hash),
+    UNIQUE (configuration_family_id, configuration_version),
     CHECK (length(configuration_id) = 36),
+    CHECK (length(configuration_family_id) = 36),
     CHECK (length(evaluation_suite_id) = 36)
 );
 
 CREATE TABLE evaluation_plans (
     plan_id TEXT PRIMARY KEY,
+    plan_family_id TEXT NOT NULL,
     plan_version TEXT NOT NULL,
     configuration_id TEXT NOT NULL,
     configuration_hash TEXT NOT NULL,
@@ -149,7 +156,9 @@ CREATE TABLE evaluation_plans (
             fixture_set_id, fixture_set_version, content_hash
         ),
     UNIQUE (plan_id, content_hash),
-    CHECK (length(plan_id) = 36)
+    UNIQUE (plan_family_id, plan_version),
+    CHECK (length(plan_id) = 36),
+    CHECK (length(plan_family_id) = 36)
 );
 
 CREATE TABLE evaluation_plan_candidates (
@@ -211,7 +220,7 @@ CREATE TABLE evaluation_results (
     outcome TEXT NOT NULL CHECK (
         outcome IN (
             'completed', 'critical_failure', 'incomplete', 'invalid',
-            'interrupted', 'withheld'
+            'interrupted'
         )
     ),
     evidence_origin TEXT NOT NULL CHECK (
@@ -246,13 +255,13 @@ CREATE TABLE evaluation_run_state_transitions (
     from_state TEXT CHECK (
         from_state IS NULL OR from_state IN (
             'planned', 'completed', 'critical_failure', 'incomplete',
-            'invalid', 'interrupted', 'withheld'
+            'invalid', 'interrupted'
         )
     ),
     to_state TEXT NOT NULL CHECK (
         to_state IN (
             'planned', 'completed', 'critical_failure', 'incomplete',
-            'invalid', 'interrupted', 'withheld'
+            'invalid', 'interrupted'
         )
     ),
     occurred_at TEXT NOT NULL,
@@ -303,20 +312,6 @@ BEGIN
         WHERE transition.run_id = NEW.run_id
           AND transition.sequence = 1
     ) THEN RAISE(ABORT, 'evaluation run is already terminal') END;
-    SELECT CASE WHEN EXISTS (
-        SELECT 1
-        FROM evaluation_runs AS run
-        WHERE run.run_id = NEW.run_id
-          AND run.condition_label = 'withheld'
-          AND NEW.outcome <> 'withheld'
-    ) THEN RAISE(ABORT, 'withheld run requires withheld outcome') END;
-    SELECT CASE WHEN EXISTS (
-        SELECT 1
-        FROM evaluation_runs AS run
-        WHERE run.run_id = NEW.run_id
-          AND run.condition_label <> 'withheld'
-          AND NEW.outcome = 'withheld'
-    ) THEN RAISE(ABORT, 'non-withheld run cannot use withheld outcome') END;
 END;
 
 CREATE TRIGGER evaluation_run_transitions_validate

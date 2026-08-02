@@ -39,6 +39,7 @@ def _blind_id(
 def build_evaluation_plan(
     *,
     plan_id: str,
+    plan_family_id: str,
     plan_version: str,
     configuration: EvaluationConfiguration,
     fixture_set: FixtureSet,
@@ -49,6 +50,7 @@ def build_evaluation_plan(
     """Create one fully ordered plan from immutable registry inputs."""
 
     validate_identifier(plan_id, field="plan_id")
+    validate_identifier(plan_family_id, field="plan_family_id")
     if not isinstance(configuration, EvaluationConfiguration):
         raise ValidationError("configuration is invalid")
     if not isinstance(fixture_set, FixtureSet):
@@ -123,6 +125,7 @@ def build_evaluation_plan(
 
     return EvaluationPlan(
         plan_id=plan_id,
+        plan_family_id=plan_family_id,
         plan_version=plan_version,
         configuration_id=configuration.configuration_id,
         configuration_hash=configuration.content_hash,

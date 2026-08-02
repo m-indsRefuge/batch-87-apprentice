@@ -43,7 +43,6 @@ RESULT_OUTCOMES = frozenset(
         "incomplete",
         "invalid",
         "interrupted",
-        "withheld",
     }
 )
 RUN_STATES = RESULT_OUTCOMES | {"planned"}
@@ -408,6 +407,7 @@ class EvaluationCondition:
 @dataclass(frozen=True, slots=True)
 class EvaluationConfiguration:
     configuration_id: str
+    configuration_family_id: str
     configuration_version: str
     evaluation_suite_id: str
     evaluation_suite_version: str
@@ -426,7 +426,12 @@ class EvaluationConfiguration:
     def __post_init__(self) -> None:
         if self.contract_version != EVALUATION_CONTRACT_VERSION:
             raise ValidationError("evaluation configuration version is invalid")
-        for field in ("configuration_id", "evaluation_suite_id", "fixture_set_id"):
+        for field in (
+            "configuration_id",
+            "configuration_family_id",
+            "evaluation_suite_id",
+            "fixture_set_id",
+        ):
             validate_identifier(getattr(self, field), field=field)
         _version(self.configuration_version, "configuration_version")
         _version(self.evaluation_suite_version, "evaluation_suite_version")
@@ -457,6 +462,7 @@ class EvaluationConfiguration:
     def canonical_value(self) -> dict[str, Any]:
         return {
             "conditions": [item.canonical_value() for item in self.conditions],
+            "configuration_family_id": self.configuration_family_id,
             "configuration_id": self.configuration_id,
             "configuration_version": self.configuration_version,
             "contract_version": self.contract_version,
@@ -485,6 +491,7 @@ class EvaluationConfiguration:
 @dataclass(frozen=True, slots=True)
 class FixtureDefinition:
     fixture_id: str
+    fixture_family_id: str
     fixture_version: str
     evaluation_suite_id: str
     evaluation_suite_version: str
@@ -498,7 +505,12 @@ class FixtureDefinition:
     def __post_init__(self) -> None:
         if self.contract_version != EVALUATION_CONTRACT_VERSION:
             raise ValidationError("fixture contract version is invalid")
-        for field in ("fixture_id", "evaluation_suite_id", "fixture_set_id"):
+        for field in (
+            "fixture_id",
+            "fixture_family_id",
+            "evaluation_suite_id",
+            "fixture_set_id",
+        ):
             validate_identifier(getattr(self, field), field=field)
         _version(self.fixture_version, "fixture_version")
         _version(self.evaluation_suite_version, "evaluation_suite_version")
@@ -516,6 +528,7 @@ class FixtureDefinition:
             "contract_version",
             "evaluation_suite_id",
             "evaluation_suite_version",
+            "fixture_family_id",
             "fixture_id",
             "fixture_set_id",
             "fixture_set_version",
@@ -528,6 +541,7 @@ class FixtureDefinition:
             raise ValidationError("fixture document fields are invalid")
         return cls(
             fixture_id=value["fixture_id"],
+            fixture_family_id=value["fixture_family_id"],
             fixture_version=value["fixture_version"],
             evaluation_suite_id=value["evaluation_suite_id"],
             evaluation_suite_version=value["evaluation_suite_version"],
@@ -544,6 +558,7 @@ class FixtureDefinition:
             "contract_version": self.contract_version,
             "evaluation_suite_id": self.evaluation_suite_id,
             "evaluation_suite_version": self.evaluation_suite_version,
+            "fixture_family_id": self.fixture_family_id,
             "fixture_id": self.fixture_id,
             "fixture_set_id": self.fixture_set_id,
             "fixture_set_version": self.fixture_set_version,
@@ -773,6 +788,7 @@ class PlannedRun:
 @dataclass(frozen=True, slots=True)
 class EvaluationPlan:
     plan_id: str
+    plan_family_id: str
     plan_version: str
     configuration_id: str
     configuration_hash: str
@@ -787,7 +803,12 @@ class EvaluationPlan:
     def __post_init__(self) -> None:
         if self.contract_version != EVALUATION_CONTRACT_VERSION:
             raise ValidationError("evaluation plan contract version is invalid")
-        for field in ("plan_id", "configuration_id", "fixture_set_id"):
+        for field in (
+            "plan_id",
+            "plan_family_id",
+            "configuration_id",
+            "fixture_set_id",
+        ):
             validate_identifier(getattr(self, field), field=field)
         _version(self.plan_version, "plan_version")
         _version(self.fixture_set_version, "fixture_set_version")
@@ -834,6 +855,7 @@ class EvaluationPlan:
             "fixture_set_hash": self.fixture_set_hash,
             "fixture_set_id": self.fixture_set_id,
             "fixture_set_version": self.fixture_set_version,
+            "plan_family_id": self.plan_family_id,
             "plan_id": self.plan_id,
             "plan_version": self.plan_version,
             "runs": [item.canonical_value() for item in self.runs],
@@ -967,8 +989,6 @@ class EvaluationResult:
             raise ValidationError("completed result cannot contain critical failures")
         if self.outcome == "critical_failure" and not self.critical_failures:
             raise ValidationError("critical-failure result requires failure evidence")
-        if self.outcome == "withheld" and (self.scores or self.critical_failures):
-            raise ValidationError("withheld result cannot contain scoring evidence")
         if not isinstance(self.runtime_observed, RuntimeObservation):
             raise ValidationError("runtime observation is invalid")
         _safe_canonical_object(

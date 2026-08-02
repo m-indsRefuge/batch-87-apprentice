@@ -53,6 +53,7 @@ class DeterministicEvaluationService:
         self,
         *,
         plan_id: str,
+        plan_family_id: str,
         plan_version: str,
         configuration: EvaluationConfiguration,
         fixture_set: FixtureSet,
@@ -60,6 +61,7 @@ class DeterministicEvaluationService:
     ) -> EvaluationPlan:
         plan = build_evaluation_plan(
             plan_id=plan_id,
+            plan_family_id=plan_family_id,
             plan_version=plan_version,
             configuration=configuration,
             fixture_set=fixture_set,

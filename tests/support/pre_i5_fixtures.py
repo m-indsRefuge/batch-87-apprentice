@@ -35,6 +35,8 @@ FIXTURE_SET_ID = uid(8_000_002)
 CONFIGURATION_ID = uid(8_000_003)
 CANDIDATE_ID = uid(8_000_004)
 PLAN_ID = uid(8_000_005)
+CONFIGURATION_FAMILY_ID = uid(8_000_006)
+PLAN_FAMILY_ID = uid(8_000_007)
 
 
 def candidate(
@@ -69,6 +71,7 @@ def candidate(
 def fixture_definition(number: int, *, expected_score: int) -> FixtureDefinition:
     return FixtureDefinition(
         fixture_id=uid(number),
+        fixture_family_id=uid(number + 10_000),
         fixture_version="1.0.0",
         evaluation_suite_id=SUITE_ID,
         evaluation_suite_version="1.0.0",
@@ -145,6 +148,7 @@ def configuration(
 ) -> EvaluationConfiguration:
     return EvaluationConfiguration(
         configuration_id=CONFIGURATION_ID,
+        configuration_family_id=CONFIGURATION_FAMILY_ID,
         configuration_version="1.0.0",
         evaluation_suite_id=manifest.evaluation_suite_id,
         evaluation_suite_version=manifest.evaluation_suite_version,
@@ -226,9 +230,7 @@ def result_for_run(
     outcome: str | None = None,
     critical_code: str | None = None,
 ) -> EvaluationResult:
-    selected_outcome = (
-        "withheld" if run.condition_label == "withheld" else "completed"
-    ) if outcome is None else outcome
+    selected_outcome = "completed" if outcome is None else outcome
     scores = ()
     if selected_outcome in {"completed", "incomplete", "interrupted"}:
         score = 3 if run.condition_label == "over_transfer" else 4
@@ -263,7 +265,7 @@ def result_for_run(
         scores=scores,
         critical_failures=critical,
         runtime_observed=RuntimeObservation(
-            latency_ms=None if selected_outcome == "withheld" else 10,
+            latency_ms=10,
             hardware_metadata_json=canonical_json_text(
                 {
                     "cpu_architecture": "synthetic",
@@ -311,6 +313,7 @@ def build_harness(tmp_path: Path, *, repetitions: int = 2) -> PreI5Harness:
     service.register_configuration(configuration_value)
     plan = service.schedule(
         plan_id=PLAN_ID,
+        plan_family_id=PLAN_FAMILY_ID,
         plan_version="1.0.0",
         configuration=configuration_value,
         fixture_set=fixtures_value,

@@ -120,16 +120,17 @@ class EvaluationStore:
                 connection.execute(
                     """
                     INSERT INTO evaluation_fixtures (
-                        fixture_id, fixture_version, fixture_set_id,
+                        fixture_id, fixture_family_id, fixture_version, fixture_set_id,
                         fixture_set_version, fixture_set_hash,
                         evaluation_suite_id, evaluation_suite_version,
                         fixture_ordinal, source_name, sensitivity,
                         provenance_json, fixture_json, byte_length,
                         content_hash, registered_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         definition.fixture_id,
+                        definition.fixture_family_id,
                         definition.fixture_version,
                         definition.fixture_set_id,
                         definition.fixture_set_version,
@@ -161,17 +162,19 @@ class EvaluationStore:
             connection.execute(
                 """
                 INSERT INTO evaluation_configurations (
-                    configuration_id, configuration_version,
+                    configuration_id, configuration_family_id,
+                    configuration_version,
                     evaluation_suite_id, evaluation_suite_version,
                     fixture_set_id, fixture_set_version, fixture_set_hash,
                     timeout_ms, repetitions, conditions_json,
                     resource_limits_json, score_schema_json,
                     critical_failure_schema_json, registered_at,
                     canonical_json, content_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     configuration.configuration_id,
+                    configuration.configuration_family_id,
                     configuration.configuration_version,
                     configuration.evaluation_suite_id,
                     configuration.evaluation_suite_version,
@@ -213,6 +216,7 @@ class EvaluationStore:
         )
         expected = {
             "configuration_id": row["configuration_id"],
+            "configuration_family_id": row["configuration_family_id"],
             "configuration_version": row["configuration_version"],
             "evaluation_suite_id": row["evaluation_suite_id"],
             "evaluation_suite_version": row["evaluation_suite_version"],
@@ -324,13 +328,14 @@ class EvaluationStore:
             connection.execute(
                 """
                 INSERT INTO evaluation_plans (
-                    plan_id, plan_version, configuration_id,
+                    plan_id, plan_family_id, plan_version, configuration_id,
                     configuration_hash, fixture_set_id, fixture_set_version,
                     fixture_set_hash, created_at, canonical_json, content_hash
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     plan.plan_id,
+                    plan.plan_family_id,
                     plan.plan_version,
                     plan.configuration_id,
                     plan.configuration_hash,
@@ -425,11 +430,6 @@ class EvaluationStore:
         configuration: dict[str, Any],
         result: EvaluationResult,
     ) -> None:
-        if run["condition_label"] == "withheld":
-            if result.outcome != "withheld":
-                raise ValidationError("withheld run requires withheld result")
-        elif result.outcome == "withheld":
-            raise ValidationError("non-withheld run cannot be withheld")
         dimensions = {
             item["name"]: item for item in configuration["score_schema"]["dimensions"]
         }
@@ -572,19 +572,12 @@ class EvaluationStore:
         ):
             raise IntegrityInspectionError("evaluation result metadata is invalid")
         outcome = value.get("outcome")
-        if run["condition_label"] == "withheld":
-            if outcome != "withheld":
-                raise IntegrityInspectionError("withheld result binding is invalid")
-        elif outcome == "withheld":
-            raise IntegrityInspectionError("non-withheld result binding is invalid")
         if outcome == "completed" and (
             observed_dimensions != set(dimensions) or failures
         ):
             raise IntegrityInspectionError("completed result schema is invalid")
         if outcome == "critical_failure" and not failures:
             raise IntegrityInspectionError("critical-failure evidence is missing")
-        if outcome == "withheld" and (scores or failures):
-            raise IntegrityInspectionError("withheld scoring evidence is invalid")
 
     def record_result(
         self,
@@ -770,6 +763,7 @@ class EvaluationStore:
                 raise IntegrityInspectionError("evaluation fixture content mismatch")
             projected = {
                 "fixture_id": fixture_row["fixture_id"],
+                "fixture_family_id": fixture_row["fixture_family_id"],
                 "fixture_version": fixture_row["fixture_version"],
                 "fixture_set_id": fixture_row["fixture_set_id"],
                 "fixture_set_version": fixture_row["fixture_set_version"],
@@ -861,6 +855,7 @@ class EvaluationStore:
         )
         expected_plan = {
             "plan_id": plan_row["plan_id"],
+            "plan_family_id": plan_row["plan_family_id"],
             "plan_version": plan_row["plan_version"],
             "configuration_id": plan_row["configuration_id"],
             "configuration_hash": plan_row["configuration_hash"],

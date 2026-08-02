@@ -17,19 +17,26 @@ from batch87_apprentice.common.errors import (
     IntegrityInspectionError,
     ValidationError,
 )
-from batch87_apprentice.common.hashing import sha256_canonical_json
+from batch87_apprentice.common.hashing import sha256_bytes, sha256_canonical_json
 from batch87_apprentice.evaluation import (
     DeterministicEvaluationService,
+    DiscoveredFixture,
+    FixtureManifestEntry,
+    FixtureSet,
     ScoreObservation,
 )
 from batch87_apprentice.evaluation.store import EvaluationStore
 from batch87_apprentice.persistence import PersistenceService
 from tests.support.pre_i5_fixtures import (
+    PLAN_FAMILY_ID,
     build_harness,
     candidate,
     complete_mock_campaign,
+    configuration,
+    fixture_set,
     result_for_run,
 )
+from tests.support.i2_fixtures import uid
 from tests.support.sql_probe import SqlProbe
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,6 +47,49 @@ def _count(config, table: str) -> int:
         lambda connection: connection.execute(
             f'SELECT COUNT(*) FROM "{table}"'
         ).fetchone()[0]
+    )
+
+
+def _versioned_fixture_set(
+    *,
+    fixture_set_version: str = "2.0.0",
+    fixture_version: str = "2.0.0",
+    identifier_base: int = 8_020_100,
+) -> FixtureSet:
+    first = fixture_set()
+    definitions = tuple(
+        replace(
+            fixture.definition,
+            fixture_id=uid(identifier_base + index),
+            fixture_version=fixture_version,
+            fixture_set_version=fixture_set_version,
+        )
+        for index, fixture in enumerate(first.fixtures)
+    )
+    entries = tuple(
+        FixtureManifestEntry(
+            fixture_id=definition.fixture_id,
+            source_name=first.fixtures[index].entry.source_name,
+            ordinal=index,
+            content_hash=sha256_bytes(definition.canonical_bytes),
+        )
+        for index, definition in enumerate(definitions)
+    )
+    manifest = replace(
+        first.manifest,
+        fixture_set_version=fixture_set_version,
+        entries=entries,
+    )
+    return FixtureSet(
+        manifest=manifest,
+        fixtures=tuple(
+            DiscoveredFixture(
+                definition=definition,
+                entry=entry,
+                exact_bytes=definition.canonical_bytes,
+            )
+            for definition, entry in zip(definitions, entries, strict=True)
+        ),
     )
 
 
@@ -80,6 +130,15 @@ def test_mock_campaign_reconstructs_every_condition_and_replays_identically(
         and summary["ranking_authority"] == "none"
         for summary in report.value["candidate_summaries"]
     )
+    comparison = report.value["condition_comparisons"][0]
+    assert comparison["enabled"]["recorded_result_count"] == 4
+    assert comparison["withheld"]["recorded_result_count"] == 4
+    assert comparison["enabled"]["missing_evidence_count"] == 0
+    assert comparison["withheld"]["missing_evidence_count"] == 0
+    assert comparison["enabled_minus_withheld_score_means"] == {
+        "accuracy": 0.0,
+        "evidence_discipline": 0.0,
+    }
 
 
 def test_complete_campaign_reconstructs_in_a_fresh_python_process(
@@ -112,6 +171,68 @@ def test_complete_campaign_reconstructs_in_a_fresh_python_process(
     ]
 
 
+def test_enabled_and_memory_withheld_conditions_accept_every_result_outcome(
+    tmp_path: Path,
+) -> None:
+    harness = build_harness(tmp_path, repetitions=3)
+    outcomes = (
+        "completed",
+        "critical_failure",
+        "incomplete",
+        "invalid",
+        "interrupted",
+    )
+    result_number = 8_305_000
+    for label in ("enabled", "withheld", "over_transfer"):
+        runs = [run for run in harness.plan.runs if run.condition_label == label]
+        for run, outcome in zip(runs, outcomes, strict=False):
+            harness.service.record_result(
+                result_for_run(
+                    run,
+                    number=result_number,
+                    outcome=outcome,
+                    critical_code=(
+                        "fabricated_authority"
+                        if outcome == "critical_failure"
+                        else None
+                    ),
+                )
+            )
+            result_number += 1
+
+    first = harness.service.report(harness.plan.plan_id)
+    second = DeterministicEvaluationService(harness.config).report(
+        harness.plan.plan_id
+    )
+    comparison = first.value["condition_comparisons"][0]
+
+    assert first.canonical_json == second.canonical_json
+    assert comparison["enabled"]["recorded_result_count"] == 5
+    assert comparison["withheld"]["recorded_result_count"] == 5
+    assert comparison["enabled"]["missing_evidence_count"] == 1
+    assert comparison["withheld"]["missing_evidence_count"] == 1
+    assert set(comparison["enabled"]["outcome_counts"]) == {
+        *outcomes,
+        "missing_evidence",
+    }
+    assert set(comparison["withheld"]["outcome_counts"]) == {
+        *outcomes,
+        "missing_evidence",
+    }
+    assert "withheld" not in comparison["withheld"]["outcome_counts"]
+    assert comparison["enabled_minus_withheld_score_means"] == {
+        "accuracy": 0.0,
+        "evidence_discipline": 0.0,
+    }
+    for label in ("enabled", "withheld", "over_transfer"):
+        assert {
+            run["outcome"]
+            for run in first.value["runs"]
+            if run["condition_label"] == label
+            and run["outcome"] != "missing_evidence"
+        } == set(outcomes)
+
+
 def test_partial_campaign_preserves_missing_and_critical_negative_evidence(
     tmp_path: Path,
 ) -> None:
@@ -142,6 +263,95 @@ def test_partial_campaign_preserves_missing_and_critical_negative_evidence(
     ) == len(harness.plan.runs) - 1
 
 
+@pytest.mark.parametrize(
+    ("target", "shape"),
+    (
+        ("candidate_reported", "candidate_id"),
+        ("replay", "candidate_hash"),
+        ("candidate_reported", "nested_model_family"),
+        ("replay", "list_model_revision"),
+        ("runtime", "nested_model_revision"),
+    ),
+)
+def test_blinded_report_omits_adversarial_identity_bearing_metadata(
+    tmp_path: Path,
+    target: str,
+    shape: str,
+) -> None:
+    harness = build_harness(tmp_path)
+    run = harness.plan.runs[0]
+    identity = {
+        "candidate_id": harness.candidate.candidate_id,
+        "candidate_hash": harness.candidate.content_hash,
+        "nested_model_family": harness.candidate.model_family,
+        "list_model_revision": harness.candidate.model_revision,
+        "nested_model_revision": harness.candidate.model_revision,
+    }[shape]
+    if shape == "nested_model_family":
+        payload = {"nested": {"model_family": identity}}
+    elif shape == "list_model_revision":
+        payload = {"values": ["control", identity]}
+    elif shape == "nested_model_revision":
+        payload = {"nested": [{"model_revision": identity}]}
+    else:
+        payload = {shape: identity}
+    result = result_for_run(run, number=8_306_000)
+    if target == "candidate_reported":
+        result = replace(
+            result,
+            candidate_reported_metadata_json=canonical_json_text(payload),
+        )
+    elif target == "replay":
+        result = replace(result, replay_metadata_json=canonical_json_text(payload))
+    else:
+        result = replace(
+            result,
+            runtime_observed=replace(
+                result.runtime_observed,
+                hardware_metadata_json=canonical_json_text(payload),
+            ),
+        )
+    harness.service.record_result(result)
+
+    reconstruction = harness.service.reconstruct(harness.plan.plan_id)
+    report = harness.service.report(harness.plan.plan_id)
+    stored_result = reconstruction.value["runs"][0]["result"]["value"]
+    projected_run = report.value["runs"][0]
+
+    assert identity in canonical_json_text(stored_result)
+    assert identity not in report.canonical_json
+    assert "candidate_reported_metadata" not in projected_run
+    assert "replay_metadata" not in projected_run
+    assert "runtime_observed" not in projected_run
+    assert projected_run["metadata_projection"] == (
+        "identity_bearing_metadata_omitted"
+    )
+    assert report.value["blinding"] == "preserved"
+    assert report.value["blinding_validation"] == {
+        "identity_leak_check": "passed",
+        "raw_metadata_projection": "omitted",
+    }
+
+
+def test_blinded_report_fails_closed_if_identity_reaches_visible_projection(
+    tmp_path: Path,
+) -> None:
+    harness = build_harness(tmp_path)
+    run = harness.plan.runs[0]
+    result = result_for_run(run, number=8_306_100)
+    result = replace(
+        result,
+        scores=tuple(
+            replace(score, rationale=harness.candidate.candidate_id)
+            for score in result.scores
+        ),
+    )
+    harness.service.record_result(result)
+
+    with pytest.raises(IntegrityInspectionError, match="candidate identity"):
+        harness.service.report(harness.plan.plan_id)
+
+
 def test_duplicate_and_conflicting_registry_identities_fail_closed(
     tmp_path: Path,
 ) -> None:
@@ -167,6 +377,101 @@ def test_duplicate_and_conflicting_registry_identities_fail_closed(
     assert _count(harness.config, "evaluation_configurations") == 1
 
 
+def test_version_instances_coexist_reconstruct_exactly_and_never_rebind(
+    tmp_path: Path,
+) -> None:
+    harness = build_harness(tmp_path)
+    store = EvaluationStore(harness.config)
+    original_plan = harness.service.reconstruct(harness.plan.plan_id)
+    second_fixtures = _versioned_fixture_set()
+    second_configuration = replace(
+        configuration(second_fixtures.manifest),
+        configuration_id=uid(8_020_201),
+        configuration_version="2.0.0",
+    )
+
+    harness.service.register_fixture_set(second_fixtures)
+    harness.service.register_configuration(second_configuration)
+    second_plan = harness.service.schedule(
+        plan_id=uid(8_020_202),
+        plan_family_id=PLAN_FAMILY_ID,
+        plan_version="2.0.0",
+        configuration=second_configuration,
+        fixture_set=second_fixtures,
+        candidates=(harness.candidate,),
+    )
+
+    first_after = harness.service.reconstruct(harness.plan.plan_id)
+    second_reconstruction = harness.service.reconstruct(second_plan.plan_id)
+    first_configuration = store.reconstruct_configuration(
+        harness.configuration.configuration_id
+    )
+    reconstructed_second_configuration = store.reconstruct_configuration(
+        second_configuration.configuration_id
+    )
+    first_fixture_set = store.reconstruct_fixture_set(
+        harness.fixtures.manifest.fixture_set_id,
+        "1.0.0",
+    )
+    reconstructed_second_fixture_set = store.reconstruct_fixture_set(
+        second_fixtures.manifest.fixture_set_id,
+        "2.0.0",
+    )
+
+    assert first_after == original_plan
+    assert first_configuration["value"] == harness.configuration.canonical_value()
+    assert reconstructed_second_configuration["value"] == (
+        second_configuration.canonical_value()
+    )
+    assert first_fixture_set["manifest"] == harness.fixtures.manifest.canonical_value()
+    assert reconstructed_second_fixture_set["manifest"] == (
+        second_fixtures.manifest.canonical_value()
+    )
+    assert first_after.value["plan"]["value"]["configuration_id"] == (
+        harness.configuration.configuration_id
+    )
+    assert first_after.value["plan"]["value"]["fixture_set_version"] == "1.0.0"
+    assert second_reconstruction.value["plan"]["value"]["configuration_id"] == (
+        second_configuration.configuration_id
+    )
+    assert second_reconstruction.value["plan"]["value"]["fixture_set_version"] == (
+        "2.0.0"
+    )
+    assert _count(harness.config, "evaluation_fixture_sets") == 2
+    assert _count(harness.config, "evaluation_configurations") == 2
+    assert _count(harness.config, "evaluation_plans") == 2
+
+    with pytest.raises(ConflictError):
+        harness.service.register_configuration(
+            replace(second_configuration, configuration_id=uid(8_020_203))
+        )
+    with pytest.raises(ConflictError):
+        harness.service.register_fixture_set(
+            _versioned_fixture_set(
+                fixture_set_version="3.0.0",
+                fixture_version="2.0.0",
+                identifier_base=8_020_300,
+            )
+        )
+    with pytest.raises(ConflictError):
+        harness.service.register_configuration(
+            replace(
+                second_configuration,
+                configuration_id=harness.configuration.configuration_id,
+                configuration_version="3.0.0",
+            )
+        )
+    with pytest.raises(ConflictError):
+        harness.service.schedule(
+            plan_id=uid(8_020_204),
+            plan_family_id=PLAN_FAMILY_ID,
+            plan_version="2.0.0",
+            configuration=second_configuration,
+            fixture_set=second_fixtures,
+            candidates=(harness.candidate,),
+        )
+
+
 def test_duplicate_and_contradictory_results_fail_closed(
     tmp_path: Path,
 ) -> None:
@@ -186,10 +491,9 @@ def test_duplicate_and_contradictory_results_fail_closed(
         harness.service.record_result(
             result_for_run(enabled, number=8_300_011, outcome="invalid")
         )
-    with pytest.raises(ValidationError, match="withheld run"):
-        harness.service.record_result(
-            result_for_run(withheld, number=8_300_012, outcome="completed")
-        )
+    harness.service.record_result(
+        result_for_run(withheld, number=8_300_012, outcome="completed")
+    )
     unknown_score = replace(
         result_for_run(
             next(
@@ -211,7 +515,7 @@ def test_duplicate_and_contradictory_results_fail_closed(
     with pytest.raises(ValidationError, match="unknown score dimension"):
         harness.service.record_result(unknown_score)
 
-    assert _count(harness.config, "evaluation_results") == 1
+    assert _count(harness.config, "evaluation_results") == 2
 
 
 def test_result_and_terminal_transition_share_one_commit_boundary(

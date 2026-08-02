@@ -19,6 +19,7 @@ from batch87_apprentice.evaluation import (
 from batch87_apprentice.evaluation.planning import build_evaluation_plan
 from tests.support.i2_fixtures import IdentifierSequence, NOW, uid
 from tests.support.pre_i5_fixtures import (
+    PLAN_FAMILY_ID,
     PLAN_ID,
     candidate,
     configuration,
@@ -210,6 +211,7 @@ def test_plan_generation_is_reproducible_blinded_and_ordinal() -> None:
     config = configuration(fixtures.manifest, repetitions=2)
     kwargs = {
         "plan_id": PLAN_ID,
+        "plan_family_id": PLAN_FAMILY_ID,
         "plan_version": "1.0.0",
         "configuration": config,
         "fixture_set": fixtures,
@@ -247,6 +249,7 @@ def test_result_contract_separates_runtime_and_candidate_metadata() -> None:
     config = configuration(fixtures.manifest, repetitions=1)
     plan = build_evaluation_plan(
         plan_id=PLAN_ID,
+        plan_family_id=PLAN_FAMILY_ID,
         plan_version="1.0.0",
         configuration=config,
         fixture_set=fixtures,
@@ -264,11 +267,12 @@ def test_result_contract_separates_runtime_and_candidate_metadata() -> None:
     assert "candidate_reported_metadata" not in value["runtime_observed"]
 
 
-def test_withheld_and_critical_result_shapes_fail_closed() -> None:
+def test_outcome_shapes_fail_closed_independently_of_condition() -> None:
     fixtures = fixture_set()
     config = configuration(fixtures.manifest, repetitions=1)
     plan = build_evaluation_plan(
         plan_id=PLAN_ID,
+        plan_family_id=PLAN_FAMILY_ID,
         plan_version="1.0.0",
         configuration=config,
         fixture_set=fixtures,
