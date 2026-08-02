@@ -26,7 +26,7 @@ from batch87_apprentice.evaluation import (
     ScoreObservation,
 )
 from batch87_apprentice.evaluation.store import EvaluationStore
-from batch87_apprentice.persistence import PersistenceService
+from batch87_apprentice.persistence import DatabaseConfig, PersistenceService
 from tests.support.pre_i5_fixtures import (
     PLAN_FAMILY_ID,
     build_harness,
@@ -36,7 +36,7 @@ from tests.support.pre_i5_fixtures import (
     fixture_set,
     result_for_run,
 )
-from tests.support.i2_fixtures import uid
+from tests.support.i2_fixtures import IdentifierSequence, NOW, uid
 from tests.support.sql_probe import SqlProbe
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -350,6 +350,97 @@ def test_blinded_report_fails_closed_if_identity_reaches_visible_projection(
 
     with pytest.raises(IntegrityInspectionError, match="candidate identity"):
         harness.service.report(harness.plan.plan_id)
+
+
+@pytest.mark.parametrize(
+    ("identity_field", "visible_projection"),
+    (
+        ("candidate_id", "score_rationale_sentence"),
+        ("candidate_hash", "score_evidence_ref"),
+        ("model_family", "critical_rationale"),
+        ("model_revision", "critical_evidence_ref"),
+        ("quantization", "score_rationale"),
+        ("artifact_format", "score_evidence_ref"),
+    ),
+)
+def test_blinded_report_casefolds_identity_in_every_visible_evidence_shape(
+    tmp_path: Path,
+    identity_field: str,
+    visible_projection: str,
+) -> None:
+    config = DatabaseConfig(tmp_path / "casefold-identity.sqlite3")
+    PersistenceService.initialize(config)
+    service = DeterministicEvaluationService(
+        config,
+        clock=lambda: NOW,
+        identifier_factory=IdentifierSequence(8_307_000),
+    )
+    candidate_value = replace(
+        candidate(candidate_id=uid(8_307_100), revision="Revision-Alpha"),
+        model_family="Family/Alpha",
+        quantization="Q4_K_M",
+        artifact_format="safe_tensors",
+    )
+    fixtures = fixture_set()
+    configuration_value = configuration(fixtures.manifest, repetitions=1)
+    service.register_candidate(candidate_value)
+    service.register_fixture_set(fixtures)
+    service.register_configuration(configuration_value)
+    plan = service.schedule(
+        plan_id=uid(8_307_101),
+        plan_family_id=uid(8_307_102),
+        plan_version="1.0.0",
+        configuration=configuration_value,
+        fixture_set=fixtures,
+        candidates=(candidate_value,),
+    )
+    run = plan.runs[0]
+    originals = {
+        "candidate_id": candidate_value.candidate_id,
+        "candidate_hash": candidate_value.content_hash,
+        "model_family": candidate_value.model_family,
+        "model_revision": candidate_value.model_revision,
+        "quantization": candidate_value.quantization,
+        "artifact_format": candidate_value.artifact_format,
+    }
+    original = originals[identity_field]
+    assert isinstance(original, str)
+    case_varied = original.upper() if identity_field in {
+        "candidate_id",
+        "candidate_hash",
+    } else original.swapcase()
+    assert case_varied != original
+    assert case_varied.casefold() == original.casefold()
+
+    critical_projection = visible_projection.startswith("critical_")
+    result = result_for_run(
+        run,
+        number=8_307_200,
+        outcome="critical_failure" if critical_projection else "completed",
+    )
+    if critical_projection:
+        failure = result.critical_failures[0]
+        if visible_projection == "critical_rationale":
+            failure = replace(failure, rationale=case_varied)
+        else:
+            failure = replace(failure, evidence_refs=(case_varied,))
+        result = replace(result, critical_failures=(failure,))
+    else:
+        score = result.scores[0]
+        if visible_projection == "score_rationale_sentence":
+            score = replace(
+                score,
+                rationale=f"Visible candidate identity: {case_varied} was observed.",
+            )
+        elif visible_projection == "score_rationale":
+            score = replace(score, rationale=case_varied)
+        else:
+            score = replace(score, evidence_refs=(case_varied,))
+        result = replace(result, scores=(score, *result.scores[1:]))
+    service.record_result(result)
+
+    with pytest.raises(IntegrityInspectionError, match="candidate identity"):
+        service.report(plan.plan_id)
 
 
 def test_duplicate_and_conflicting_registry_identities_fail_closed(

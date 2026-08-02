@@ -45,24 +45,24 @@ def _assert_identity_safe(
         candidate = record["value"]
         identifying_values.update(
             {
-                record["content_hash"],
-                candidate["candidate_id"],
-                candidate["model_family"],
-                candidate["model_revision"],
+                record["content_hash"].casefold(),
+                candidate["candidate_id"].casefold(),
+                candidate["model_family"].casefold(),
+                candidate["model_revision"].casefold(),
             }
         )
         for field in ("quantization", "artifact_format"):
             candidate_value = candidate[field]
             if (
                 isinstance(candidate_value, str)
-                and candidate_value.lower() not in _NON_IDENTIFYING_GENERIC_VALUES
+                and candidate_value.casefold() not in _NON_IDENTIFYING_GENERIC_VALUES
             ):
-                identifying_values.add(candidate_value)
+                identifying_values.add(candidate_value.casefold())
 
     def inspect(item: object) -> None:
         if isinstance(item, dict):
             for key, nested in item.items():
-                if key.lower() in _IDENTITY_FIELDS:
+                if key.casefold() in _IDENTITY_FIELDS:
                     raise IntegrityInspectionError(
                         "blinded report contains an identity-bearing field"
                     )
@@ -71,7 +71,7 @@ def _assert_identity_safe(
             for nested in item:
                 inspect(nested)
         elif isinstance(item, str) and any(
-            identity in item for identity in identifying_values
+            identity in item.casefold() for identity in identifying_values
         ):
             raise IntegrityInspectionError(
                 "blinded report contains candidate identity"
