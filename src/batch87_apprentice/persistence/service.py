@@ -62,6 +62,9 @@ class PersistenceService:
         from batch87_apprentice.invocation.integrity import (
             InvocationIntegrityInspector,
         )
+        from batch87_apprentice.evaluation.integrity import (
+            EvaluationIntegrityInspector,
+        )
         self.config = config
         kernel = PersistenceKernel(config)
         self.runtime_instances = RuntimeRepository(kernel)
@@ -86,6 +89,9 @@ class PersistenceService:
         self.session_task_integrity = SessionTaskIntegrityInspector(kernel)
         self.retrieval_context = ContextRetrievalService(config)
         self.model_invocation_integrity = InvocationIntegrityInspector(kernel)
+        self.deterministic_evaluation_integrity = EvaluationIntegrityInspector(
+            config
+        )
         self.integrity = IntegrityInspector(kernel)
 
     @classmethod

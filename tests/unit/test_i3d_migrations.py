@@ -76,8 +76,8 @@ def test_fresh_database_applies_current_migrations_additively(
     config = DatabaseConfig(tmp_path / "fresh.sqlite3")
     migrations = MigrationRunner(config).apply_all()
 
-    assert [item.version for item in migrations] == list(range(1, 13))
-    assert migrations[-1].filename == "0012_model_invocation_bridge.sql"
+    assert [item.version for item in migrations] == list(range(1, 14))
+    assert migrations[-1].filename == "0013_deterministic_evaluation.sql"
     assert I3D_TABLES <= names(config.path, "table")
     assert I3D_INDEXES <= names(config.path, "index")
     assert I3D_TRIGGERS <= names(config.path, "trigger")

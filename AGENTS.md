@@ -80,56 +80,60 @@ B87-V0 - Persistence Validation is accepted and closed against source baseline
 093e07a6aa9209a6ea8efe2aaecfcbdeb6829d0a. The closure record commit is
 a91c82f7c68143b26b655a05fcbc6571e5358006.
 
-The governing current-state record and its acceptance decision are:
+The governing historical current-state record through I4-A and V0 and its
+acceptance decision are:
 
     docs/implementation/B87-PROGRAMME-STATE-RECONCILIATION-THROUGH-I4-A-AND-V0.md
     docs/implementation/B87-PROGRAMME-STATE-AND-I4-B-CONTRACT-ACCEPTANCE-DECISION.md
 
-The programme-state reconciliation and B87-I4-B contract version 1.0 are
-accepted documentation as of 2026-07-30. Their acceptance does not release
-implementation.
+The current operational-state reconciliation is:
+
+    docs/implementation/B87-PROGRAMME-STATE-RECONCILIATION-THROUGH-I4-B-AND-PRE-I5-RELEASE.md
+
+B87-I4-B - Provider-Neutral Model and Invocation Bridge is accepted, externally
+validated, merged, and closed. The accepted implementation commit is
+fa1a1e3effd9e30a070486cf8b40930ae1c2c10e; the merge commit is
+d8258520a53955e23834e362837088bd1acb12b1; and the accepted tree is
+ef5abadce3c7b5e1c9f9558f4a80877166536efa.
+
+The accepted scoped external validation result passed V0-T01 through V0-T13.
+V0-T14 was reconsidered, not triggered, and remains unauthorized. That result
+closes I4-B within its accepted deterministic inactive/mock-provider boundary;
+it does not validate a real provider, candidate model, model behaviour, memory
+efficacy, developmental compounding, or general production readiness.
 
 The current active implementation release is:
 
 ```text
-NONE
+B87-PRE-I5
 ```
 
-B87-I4-B - Provider-Neutral Model and Invocation Bridge is the next bounded
-implementation slice. Its contract is accepted but implementation remains
-unreleased:
+B87-PRE-I5 - Deterministic Evaluation Infrastructure is the only active bounded
+implementation slice. Its conditionally accepted contract is supplied by:
 
-    docs/implementation/B87-I4-B-PROVIDER-NEUTRAL-MODEL-AND-INVOCATION-BRIDGE-CONTRACT.md
+    docs/implementation/B87-PRE-LLM-IMPLEMENTATION-PROGRAMME-CONTRACT.md
+    docs/implementation/B87-PRE-LLM-CONTRACT-RATIFICATION-DECISION.md
 
-A scoped V0 regression decision version 1.0 and its acceptance decision are
-accepted documentation:
+Nolan issued the exact release:
 
-    docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-DECISION.md
-    docs/implementation/B87-I4-B-SCOPED-V0-REGRESSION-ACCEPTANCE-DECISION.md
+```text
+AUTHORIZE B87-PRE-I5
+```
 
-That acceptance satisfies the regression-planning entry gate required by
-section 17 of the I4-B contract. B87-V0 remains accepted and closed.
+PRE-I5 may implement only deterministic, non-model infrastructure for candidate
+metadata, evaluation configurations, fixture discovery and versioning, run
+planning, result contracts, append-only persistence and reconstruction,
+deterministic reporting, and a synthetic mock evaluation campaign. It may not
+execute, accept, activate, select, rank for admission, download, load, or serve
+a candidate model. Real providers, provider endpoints, credentials, model
+paths, B87-I5, Validation V1, training, tools, Execute permission, and B87-E0
+through B87-E2 remain unauthorized.
 
-B87-I4-B implementation remains unauthorized and may begin only after Nolan
-separately issues:
-
-    AUTHORIZE B87-I4-B
-
-That future release must identify accepted regression-decision version 1.0 and
-its acceptance record. External regression remains prohibited until the
-separately authorized implementation is complete and internally passing, the
-exact candidate commit is frozen, the executable scenario adaptations are
-complete, a valid `B87-I4B-HARNESS-FREEZE-MANIFEST-v1.0` is generated and
-recorded, and every other accepted external-execution precondition is satisfied.
-The documentation acceptances, programme-state reconciliation, and earlier
-contract-authoring authorization do not issue the implementation release.
-
-B87-PRE-I5 and B87-E0 through B87-E2 already have conditionally accepted
-contracts under the ratified pre-LLM contract pack. They remain inactive because
-their entry gates are unsatisfied and no current phase release exists.
-Conditional contract acceptance does not authorize implementation or execution;
-each phase still requires satisfaction of its accepted entry gate and its exact
-explicit phase release.
+B87-E0 through B87-E2 retain conditionally accepted contracts under the
+ratified pre-LLM contract pack but remain inactive. Conditional contract
+acceptance does not authorize implementation or execution; each phase still
+requires satisfaction of its accepted entry gate and its exact explicit phase
+release.
 
 B87-I5 and external Validation V1 are distinct from those conditionally accepted
 phases. They remain inactive and still require separately accepted execution
