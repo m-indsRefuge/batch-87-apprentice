@@ -1,0 +1,103 @@
+{
+  "protocol": "B87-I5-A-HUMAN-ACCEPTANCE-CANDIDATE-v1.0",
+  "phase": "B87-I5-A",
+  "title": "Local Provider Boundary and Candidate Preflight",
+  "status": "READY_FOR_HUMAN_ACCEPTANCE",
+  "generated_date": "2026-08-29",
+  "governance_basis": {
+    "authorization_release": "AUTHORIZE B87-I5-A",
+    "candidate_suite_manifest_sha256": "54ddc352f42ae99d73118f9c43e385760363b5497d36eb25bb3b7acabfafff72",
+    "human_experiment_design_manifest_sha256": "b025f567de3dc56036ef866d743cc291c43f5749579eb5bb3e63ae9920cc69cc",
+    "exact_acquisition_list_sha256": "710a8dd9e423806e7ccb815a3535f807c4098532342234ef40ab62a12fef4222"
+  },
+  "repository_binding": {
+    "branch": "codex/b87-i5-a-local-provider-boundary-candidate-preflight",
+    "implementation_commit": "393a9d8873b2fdbe9b2589e25f03659e8c73782b",
+    "accepted_design_parent": "e12b00f2b3c07f415d6264836e01152fbe026c83",
+    "exactly_one_commit_from_parent": true,
+    "publication_performed": false
+  },
+  "run_evidence": {
+    "receipt_filename": "b87-i5-a-receipt-20260829T063741Z.json",
+    "receipt_status": "PASS_B87_I5_A_LOCAL_PROVIDER_BOUNDARY_AND_CANDIDATE_PREFLIGHT",
+    "receipt_phase_completion_ready": true,
+    "evidence_filename": "b87-i5-a-evidence-20260829T063741Z.json",
+    "evidence_sha256": "5f463682e6688ad9c70751a4a46293f1ea82b7e33db55237add3ca71d1f3d1cf",
+    "review_bundle_filename": "b87-i5-a-review-bundle-20260829T063741Z.zip",
+    "review_bundle_sha256": "d55909d78b14714340aeb269c5011a94af3c2afe9ef5ce7a300c0a51f416f9a8",
+    "candidate_execution_manifest_sha256": "e32b50f42a7ad242f7c8e47c233f9813153840d90d480074808b7a10644cae9c",
+    "evidence_integrity_review": {
+      "external_evidence_matches_bundle_copy": true,
+      "referenced_records_hash_verified": true,
+      "referenced_records_count": 29,
+      "candidate_outcome_records_consistent": true
+    }
+  },
+  "provider_boundary": {
+    "mode": "local_ollama",
+    "endpoint": "http://127.0.0.1:11434",
+    "ollama_version": "0.33.2",
+    "streaming": false,
+    "redirects": false,
+    "automatic_retry": false,
+    "tools": false,
+    "callbacks": false,
+    "remote_model_inference": false
+  },
+  "candidate_terminal_outcomes": [
+    {
+      "candidate_id": "B87-I5-CS-GPTOSS20B",
+      "runtime_tag": "gpt-oss:20b",
+      "identity_status": "exact_digest_match",
+      "terminal_outcome": "preflight_failed",
+      "detail": "Ollama request timed out"
+    },
+    {
+      "candidate_id": "B87-I5-CS-QWEN3-14B",
+      "runtime_tag": "qwen3:14b",
+      "identity_status": "exact_digest_match",
+      "terminal_outcome": "preflight_passed",
+      "detail": "exact identity and both structural preflight responses passed"
+    },
+    {
+      "candidate_id": "B87-I5-CS-GEMMA4-E4B",
+      "runtime_tag": "gemma4:e4b",
+      "identity_status": "exact_digest_match",
+      "terminal_outcome": "preflight_passed",
+      "detail": "exact identity and both structural preflight responses passed"
+    },
+    {
+      "candidate_id": "B87-I5-CS-MINISTRAL3-8B",
+      "runtime_tag": "ministral-3:8b",
+      "identity_status": "exact_digest_match",
+      "terminal_outcome": "protocol_incompatible",
+      "detail": "structural response violated exact raw-JSON protocol"
+    },
+    {
+      "candidate_id": "B87-I5-CS-PHI4MINI",
+      "runtime_tag": "phi4-mini:3.8b-q4_K_M",
+      "identity_status": "exact_digest_match",
+      "terminal_outcome": "protocol_incompatible",
+      "detail": "structural response violated exact raw-JSON protocol"
+    }
+  ],
+  "known_non_blocking_harness_issue": {
+    "id": "I5A-WIN-OLLAMA-PULL-DECODE",
+    "classification": "implementation_quality_issue_non_behavioral",
+    "detail": "Windows CP1252 decoding of captured ollama pull output caused UnicodeDecodeError in subprocess reader threads. Model acquisition itself completed and all five frozen package digests matched exactly. Repair required before a future acquisition cycle.",
+    "invalidates_i5a_evidence": false
+  },
+  "human_acceptance_effect": {
+    "closes_phase": "B87-I5-A",
+    "accepts_exact_terminal_outcomes": true,
+    "accepts_evidence_as_sufficient_for_phase_close": true,
+    "does_not_admit_any_candidate": true,
+    "does_not_rank_or_score_candidates": true,
+    "does_not_authorize_b87_i5_b": true,
+    "does_not_authorize_formal_experiments": true,
+    "does_not_authorize_holdouts": true,
+    "does_not_authorize_memory_mutation": true,
+    "does_not_authorize_training_or_weight_modification": true,
+    "does_not_authorize_push_pr_merge_tag": true
+  }
+}
